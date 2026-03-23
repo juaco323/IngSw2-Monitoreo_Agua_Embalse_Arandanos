@@ -8,12 +8,17 @@
     </div>
     
     <div class="gauge-wrapper">
-      <DialGauge
+      <LinearGauge
+        :sensor-name="sensorName"
         :value="value"
-        :min="min"
-        :max="max"
+        :min-value="min"
+        :max-value="max"
         :unit="unit"
-        :size="240"
+        :width="450"
+        :height="150"
+        :major-ticks="majorTicks"
+        :minor-ticks="5"
+        :highlights="gaugeHighlights"
       />
     </div>
 
@@ -32,12 +37,17 @@
 
 <script setup>
 import { computed } from 'vue'
-import DialGauge from './DialGauge.vue'
+import LinearGauge from './LinearGauge.vue'
 
 const props = defineProps({
   sensorName: {
     type: String,
     required: true
+  },
+  sensorType: {
+    type: String,
+    default: 'temperature',
+    validator: (value) => ['temperature', 'ph', 'conductivity'].includes(value)
   },
   value: {
     type: Number,
@@ -82,6 +92,49 @@ const statusText = computed(() => {
   if (pct < 15 || pct > 85) return 'Peligroso'
   if (pct < 35 || pct > 65) return 'Advertencia'
   return 'Estable'
+})
+
+const majorTicks = computed(() => {
+  const range = props.max - props.min
+  const step = range / 10
+  const ticks = []
+  for (let i = 0; i <= 10; i++) {
+    ticks.push(parseFloat((props.min + i * step).toFixed(2)))
+  }
+  return ticks
+})
+
+const gaugeHighlights = computed(() => {
+  // Para temperatura: azul en extremo frío, para pH y conductividad: rojo en ambos extremos
+  if (props.sensorType === 'temperature') {
+    // Temperatura: Azul (crítico bajo) | Amarillo (advertencia) | Verde (SAFE) | Amarillo (advertencia) | Rojo (crítico alto)
+    const seg1 = props.min + (props.safeMax - props.min) * 0.15        // Límite azul-amarillo
+    const seg2 = props.min + (props.safeMax - props.min) * 0.35        // Límite amarillo-verde
+    const safeEnd = props.safeMax                                      // Fin de la zona segura
+    const seg3 = props.safeMax + (props.max - props.safeMax) * 0.5     // Límite amarillo-rojo
+
+    return [
+      { from: props.min, to: seg1, color: 'rgba(0, 0, 255, 0.25)' },          // Azul (Frío - crítico)
+      { from: seg1, to: seg2, color: 'rgba(255, 193, 7, 0.25)' },             // Amarillo (Advertencia baja)
+      { from: seg2, to: safeEnd, color: 'rgba(76, 175, 80, 0.25)' },          // Verde (SAFE - rango seguro)
+      { from: safeEnd, to: seg3, color: 'rgba(255, 193, 7, 0.25)' },          // Amarillo (Advertencia alta)
+      { from: seg3, to: props.max, color: 'rgba(255, 0, 0, 0.25)' }           // Rojo (Calor - crítico)
+    ]
+  } else {
+    // pH y Conductividad: Rojo (crítico bajo) | Amarillo (advertencia) | Verde (SAFE) | Amarillo (advertencia) | Rojo (crítico alto)
+    const seg1 = props.min + (props.safeMax - props.min) * 0.15        // Límite rojo-amarillo
+    const seg2 = props.min + (props.safeMax - props.min) * 0.35        // Límite amarillo-verde
+    const safeEnd = props.safeMax                                      // Fin de la zona segura
+    const seg3 = props.safeMax + (props.max - props.safeMax) * 0.5     // Límite amarillo-rojo
+
+    return [
+      { from: props.min, to: seg1, color: 'rgba(255, 0, 0, 0.25)' },          // Rojo (Bajo - crítico)
+      { from: seg1, to: seg2, color: 'rgba(255, 193, 7, 0.25)' },             // Amarillo (Advertencia baja)
+      { from: seg2, to: safeEnd, color: 'rgba(76, 175, 80, 0.25)' },          // Verde (SAFE - rango seguro)
+      { from: safeEnd, to: seg3, color: 'rgba(255, 193, 7, 0.25)' },          // Amarillo (Advertencia alta)
+      { from: seg3, to: props.max, color: 'rgba(255, 0, 0, 0.25)' }           // Rojo (Alto - crítico)
+    ]
+  }
 })
 </script>
 

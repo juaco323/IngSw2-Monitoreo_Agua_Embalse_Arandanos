@@ -26,6 +26,7 @@
       <div class="sensors-grid">
         <SensorCard
           sensor-name="pH"
+          sensor-type="ph"
           :value="sensors.ph.value"
           :min="sensors.ph.min"
           :max="sensors.ph.max"
@@ -36,6 +37,7 @@
         
         <SensorCard
           sensor-name="Temperatura"
+          sensor-type="temperature"
           :value="sensors.temperature.value"
           :min="sensors.temperature.min"
           :max="sensors.temperature.max"
@@ -46,6 +48,7 @@
         
         <SensorCard
           sensor-name="Conductividad Eléctrica"
+          sensor-type="conductivity"
           :value="sensors.conductivity.value"
           :min="sensors.conductivity.min"
           :max="sensors.conductivity.max"
