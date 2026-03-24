@@ -28,13 +28,21 @@
             <path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/>
           </svg>
         </button>
+
+        <button
+          class="history-btn"
+          @click="$emit('open-history')"
+          title="Abrir registro histórico"
+        >
+          Registro Histórico
+        </button>
       </div>
     </header>
 
     <main class="devices-container">
       <div class="devices-grid" :class="`view-${viewMode}`">
         <DeviceCard
-          v-for="device in devices"
+          v-for="device in devicesData"
           :key="device.id"
           :device="device"
           :is-selected="selectedDeviceId === device.id"
@@ -42,7 +50,7 @@
         />
       </div>
 
-      <div v-if="devices.length === 0" class="empty-state">
+      <div v-if="devicesData.length === 0" class="empty-state">
         <div class="empty-icon">
           <svg viewBox="0 0 24 24" width="64" height="64" fill="currentColor">
             <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5-4h-2v2h2v-2zm0-4h-2v2h2V7z"/>
@@ -60,58 +68,12 @@ import DeviceCard from './DeviceCard.vue'
 
 const viewMode = ref('grid')
 const selectedDeviceId = ref(null)
-
-// Datos de ejemplo de dispositivos
-const devices = ref([
-  {
-    id: 1,
-    name: 'Arduino Embalse A',
-    model: 'Arduino Uno - Zona Norte',
-    status: 'connected',
-    lastUpdate: 'hace 2 segundos',
-    sensors: [
-      { id: 'ph', name: 'pH', value: 7.2, unit: 'pH' },
-      { id: 'temp', name: 'Temperatura', value: 22.5, unit: '°C' },
-      { id: 'cond', name: 'Conductividad', value: 650, unit: 'µS/cm' }
-    ]
-  },
-  {
-    id: 2,
-    name: 'Arduino Embalse B',
-    model: 'Arduino Uno - Zona Sur',
-    status: 'connected',
-    lastUpdate: 'hace 1 segundo',
-    sensors: [
-      { id: 'ph', name: 'pH', value: 7.1, unit: 'pH' },
-      { id: 'temp', name: 'Temperatura', value: 21.8, unit: '°C' },
-      { id: 'cond', name: 'Conductividad', value: 620, unit: 'µS/cm' }
-    ]
-  },
-  {
-    id: 3,
-    name: 'Arduino Embalse C',
-    model: 'Arduino Uno - Zona Este',
-    status: 'connected',
-    lastUpdate: 'hace 3 segundos',
-    sensors: [
-      { id: 'ph', name: 'pH', value: 7.4, unit: 'pH' },
-      { id: 'temp', name: 'Temperatura', value: 23.2, unit: '°C' },
-      { id: 'cond', name: 'Conductividad', value: 680, unit: 'µS/cm' }
-    ]
-  },
-  {
-    id: 4,
-    name: 'Arduino Embalse D',
-    model: 'Arduino Uno - Zona Oeste',
-    status: 'disconnected',
-    lastUpdate: 'hace 5 minutos',
-    sensors: [
-      { id: 'ph', name: 'pH', value: 0, unit: 'pH' },
-      { id: 'temp', name: 'Temperatura', value: 0, unit: '°C' },
-      { id: 'cond', name: 'Conductividad', value: 0, unit: 'µS/cm' }
-    ]
+const props = defineProps({
+  devicesData: {
+    type: Array,
+    required: true
   }
-])
+})
 
 const selectDevice = (device) => {
   selectedDeviceId.value = device.id
@@ -119,7 +81,7 @@ const selectDevice = (device) => {
   emit('select-device', device)
 }
 
-const emit = defineEmits(['select-device'])
+const emit = defineEmits(['select-device', 'open-history'])
 </script>
 
 <style scoped>
@@ -158,11 +120,28 @@ const emit = defineEmits(['select-device'])
 
 .view-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   background: #f8f9fa;
   padding: 8px;
   border-radius: 8px;
   flex-shrink: 0;
+}
+
+.history-btn {
+  border: 1px solid #66bb6a;
+  background: #ffffff;
+  color: #2e7d32;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.history-btn:hover {
+  background: #e8f5e9;
 }
 
 .view-btn {
@@ -271,6 +250,10 @@ const emit = defineEmits(['select-device'])
   .view-controls {
     width: 100%;
     justify-content: center;
+  }
+
+  .history-btn {
+    height: 36px;
   }
 
   .devices-container {

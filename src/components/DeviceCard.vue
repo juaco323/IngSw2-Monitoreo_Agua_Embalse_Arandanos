@@ -20,12 +20,12 @@
     <div class="device-body">
       <div class="sensor-list">
         <div
-          v-for="sensor in device.sensors"
+          v-for="sensor in normalizedSensors"
           :key="sensor.id"
           class="sensor-item"
         >
           <span class="sensor-name">{{ sensor.name }}</span>
-          <span class="sensor-value">{{ sensor.value.toFixed(2) }} {{ sensor.unit }}</span>
+          <span class="sensor-value">{{ formatSensorValue(sensor.value) }} {{ sensor.unit }}</span>
         </div>
       </div>
     </div>
@@ -37,7 +37,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   device: {
     type: Object,
     required: true
@@ -49,6 +51,23 @@ defineProps({
 })
 
 defineEmits(['select'])
+
+const formatSensorValue = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : '--'
+}
+
+const normalizedSensors = computed(() => {
+  const sensors = props.device?.sensors
+  if (Array.isArray(sensors)) return sensors
+  if (!sensors || typeof sensors !== 'object') return []
+
+  return [
+    { id: 'ph', name: 'pH', value: sensors.ph, unit: 'pH' },
+    { id: 'temp', name: 'Temperatura', value: sensors.temperature, unit: '°C' },
+    { id: 'cond', name: 'Conductividad', value: sensors.conductivity, unit: 'µS/cm' }
+  ]
+})
 </script>
 
 <style scoped>
