@@ -146,7 +146,17 @@ def measurement_is_out_of_range(payload: AlertCreate) -> bool:
     return payload.valor < payload.minimo or payload.valor > payload.maximo
 
 
-def build_alert_message(device_name: str, sensor: str, medicion: str, now: datetime) -> str:
+def send_mailersend_notification(device_name: str, sensor: str, medicion: str, now: datetime) -> None:
+    config = get_mailersend_config()
+    if not config.api_token or not config.from_email or not config.to_emails:
+        logger.warning(
+            f"MailerSend no configurado. API Token: {bool(config.api_token)}, "
+            f"From Email: {bool(config.from_email)}, To Emails: {bool(config.to_emails)}"
+        )
+        return
+
+    logger.info(f"Enviando alerta por email: {device_name} - {sensor}")
+
     day_names = {
         0: "Lunes",
         1: "Martes",
@@ -160,29 +170,6 @@ def build_alert_message(device_name: str, sensor: str, medicion: str, now: datet
     fecha = now.strftime("%Y-%m-%d")
     hora = now.strftime("%H:%M:%S")
 
-    return (
-        "Alerta de medicion fuera de rango\n\n"
-        f"Nombre dispositivo: {device_name}\n"
-        f"Dia: {day_name}\n"
-        f"Fecha: {fecha}\n"
-        f"Hora: {hora}\n"
-        f"Sensor: {sensor}\n"
-        f"Medicion: {medicion}"
-    )
-
-
-def send_mailersend_notification(device_name: str, sensor: str, medicion: str, now: datetime) -> None:
-    config = get_mailersend_config()
-    if not config.api_token or not config.from_email or not config.to_emails:
-        logger.warning(
-            f"MailerSend no configurado. API Token: {bool(config.api_token)}, "
-            f"From Email: {bool(config.from_email)}, To Emails: {bool(config.to_emails)}"
-        )
-        return
-
-    logger.info(f"Enviando alerta por email: {device_name} - {sensor}")
-
-    message = build_alert_message(device_name, sensor, medicion, now)
     payload = {
         "from": {
             "email": config.from_email,
@@ -190,7 +177,21 @@ def send_mailersend_notification(device_name: str, sensor: str, medicion: str, n
         },
         "to": [{"email": email} for email in config.to_emails],
         "subject": f"⚠️ Alerta: {sensor} fuera de rango - {device_name}",
-        "text": message,
+        "template_id": "351ndgw8m7rgzqx8",
+        "personalization": [
+            {
+                "email": email,
+                "data": {
+                    "DEVICE_NAME": device_name,
+                    "DAY_NAME": day_name,
+                    "FECHA": fecha,
+                    "HORA": hora,
+                    "SENSOR": sensor,
+                    "MEDICION": medicion,
+                }
+            }
+            for email in config.to_emails
+        ],
     }
     headers = {
         "Authorization": f"Bearer {config.api_token}",
@@ -205,7 +206,7 @@ def send_mailersend_notification(device_name: str, sensor: str, medicion: str, n
             timeout=10,
         )
 
-        if response.status_code != 200:
+        if response.status_code not in [200, 202]:
             logger.error(f"Respuesta MailerSend: {response.status_code} - {response.text}")
             response.raise_for_status()
 
