@@ -1,38 +1,57 @@
 /*
-  CÓDIGO ARDUINO - LECTURA DE SENSORES
+  CÓDIGO ESP8266 - LECTURA DE SENSORES Y ENVÍO A MONGODB
   
-  Código de ejemplo para Arduino Uno que lee sensores de:
+  Código para ESP8266 que lee sensores de:
   - pH (entrada analógica A0)
-  - Temperatura (OneWire en pin 2)
-  - Conductividad Eléctrica (entrada analógica A1)
+  - Temperatura (OneWire en pin D4)
+  - Conductividad Eléctrica (entrada analógica A0 - compartido)
   
-  Los datos se envían en formato JSON a través del puerto serial.
+  Los datos se envían vía HTTP PUT a la API FastAPI que guarda en MongoDB.
   
   INSTALACIÓN DE LIBRERÍAS:
   1. Abre Arduino IDE
   2. Sketch > Include Library > Manage Libraries
   3. Busca e instala "OneWire" por Jim Studt
   4. Busca e instala "DallasTemperature" por Miles Burton
+  5. El ESP8266 incluye librerías de WiFi: ESP8266WiFi, ESP8266HTTPClient
+  
+  CONFIGURACIÓN ESP8266:
+  - Board: NodeMCU 1.0 (ESP-12E Module) o similar
+  - CPU Frequency: 80 MHz
+  - Flash Size: 4M (FS:2MB OTA:~1019KB)
   
   CONEXIONES:
   - Sensor pH → A0 (entrada analógica)
-  - Sensor Temperatura (DS18B20) → pin 2 (OneWire)
-  - Sensor Conductividad → A1 (entrada analógica)
+  - Sensor Temperatura (DS18B20) → D4 (GPIO2)
+  - Sensor Conductividad → A0 (entrada analógica compartida)
   - GND → GND
-  - 5V → 5V
+  - 3.3V → 3.3V (ESP8266)
 */
 
+#include <Arduino.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
+#include <ArduinoJson.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+
+// ============================================================================
+// CONFIGURACIÓN DE WiFi
+// ============================================================================
+
+// CAMBIAR ESTOS VALORES SEGÚN TU RED WiFi
+const char *ssid = "TU_SSID";                    // Nombre de tu red WiFi
+const char *password = "TU_PASSWORD";            // Contraseña WiFi
+const char *api_url = "http://192.168.1.100:8000";  // URL de la API FastAPI
 
 // ============================================================================
 // CONFIGURACIÓN DE PINES
 // ============================================================================
 
-const int PH_SENSOR_PIN = A0;           // Pin analógico para pH
-const int TEMP_SENSOR_PIN = 2;          // Pin digital para sensor temperatura
-const int CONDUCTIVITY_SENSOR_PIN = A1; // Pin analógico para conductividad
-const int LED_PIN = 13;                 // LED indicador de estado
+const int PH_SENSOR_PIN = A0;           // Pin analógico para pH (A0)
+const int TEMP_SENSOR_PIN = D4;         // Pin digital para sensor temperatura (D4/GPIO2)
+const int LED_PIN = D8;                 // LED indicador de estado (D8/GPIO15)
 
 // ============================================================================
 // CONFIGURACIÓN DE SENSORES
@@ -54,25 +73,66 @@ float temperatureValue = 20.0;
 float conductivityValue = 500.0;
 
 unsigned long lastSensorReadTime = 0;
-unsigned long lastSerialSendTime = 0;
+unsigned long lastHTTPSendTime = 0;
+unsigned long wifiReconnectTime = 0;
 
-const unsigned long SENSOR_READ_INTERVAL = 1000;  // Leer sensores cada 1s
-const unsigned long SERIAL_SEND_INTERVAL = 3000;  // Enviar datos cada 3s
+const unsigned long SENSOR_READ_INTERVAL = 1000;   // Leer sensores cada 1s
+const unsigned long HTTP_SEND_INTERVAL = 10000;    // Enviar datos cada 10s
+const unsigned long WIFI_RECONNECT_INTERVAL = 5000; // Reintentar WiFi cada 5s
+
+WiFiClient client;
+HTTPClient http;
 
 // ============================================================================
 // SETUP
 // ============================================================================
 
 void setup() {
-  Serial.begin(9600);        // Inicializar comunicación serial (9600 baud)
+  Serial.begin(115200);      // Inicializar comunicación serial (115200 baud para ESP8266)
+  delay(1000);
+  
+  Serial.println("\n\n");
+  Serial.println("===========================================");
+  Serial.println("ESP8266 - Monitoreo de Embalse Arandanos");
+  Serial.println("===========================================");
+  
   pinMode(LED_PIN, OUTPUT);  // Configurar LED como salida
   
   // Inicializar sensor de temperatura
   temperatureSensors.begin();
   
-  // Mensaje inicial
-  Serial.println("{\"type\":\"system\",\"message\":\"Arduino iniciado\"}");
+  // Conectar a WiFi
+  connectToWiFi();
+  
+  Serial.println("Setup completado - Sistema listo");
   delay(500);
+}
+
+// ============================================================================
+// FUNCIÓN PARA CONECTAR A WiFi
+// ============================================================================
+
+void connectToWiFi() {
+  Serial.println("\n[WiFi] Intentando conectar a: " + String(ssid));
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("");
+    Serial.println("[WiFi] Conectado exitosamente");
+    Serial.println("[WiFi] IP: " + WiFi.localIP().toString());
+    digitalWrite(LED_PIN, HIGH); // LED encendido cuando conectado
+  } else {
+    Serial.println("");
+    Serial.println("[WiFi] Fallo en la conexión. Reintentando...");
+  }
 }
 
 // ============================================================================
@@ -82,21 +142,34 @@ void setup() {
 void loop() {
   unsigned long currentTime = millis();
   
+  // Verificar conexión WiFi
+  if (WiFi.status() != WL_CONNECTED) {
+    if (currentTime - wifiReconnectTime >= WIFI_RECONNECT_INTERVAL) {
+      Serial.println("[WiFi] Desconectado. Reintentando...");
+      connectToWiFi();
+      wifiReconnectTime = currentTime;
+    }
+  }
+  
   // Leer sensores cada SENSOR_READ_INTERVAL ms
   if (currentTime - lastSensorReadTime >= SENSOR_READ_INTERVAL) {
     readAllSensors();
     lastSensorReadTime = currentTime;
     
     // Parpadear LED cuando se leen sensores
-    digitalWrite(LED_PIN, HIGH);
-    delayMicroseconds(100);
-    digitalWrite(LED_PIN, LOW);
+    if (WiFi.status() == WL_CONNECTED) {
+      digitalWrite(LED_PIN, LOW);
+      delayMicroseconds(100);
+      digitalWrite(LED_PIN, HIGH);
+    }
   }
   
-  // Enviar datos por serial cada SERIAL_SEND_INTERVAL ms
-  if (currentTime - lastSerialSendTime >= SERIAL_SEND_INTERVAL) {
-    sendSensorDataJSON();
-    lastSerialSendTime = currentTime;
+  // Enviar datos por HTTP cada HTTP_SEND_INTERVAL ms
+  if (currentTime - lastHTTPSendTime >= HTTP_SEND_INTERVAL) {
+    if (WiFi.status() == WL_CONNECTED) {
+      sendSensorDataToAPI();
+    }
+    lastHTTPSendTime = currentTime;
   }
 }
 
@@ -153,52 +226,85 @@ void readTemperatureSensor() {
 /*
   LECTURA DE CONDUCTIVIDAD ELÉCTRICA
   
-  El sensor produce una salida de voltaje proporcional a la conductividad
+  IMPORTANTE: ESP8266 tiene solo UNA entrada analógica (A0).
+  
+  Opciones:
+  1. Usar un multiplexor analógico (recomendado para 3+ sensores)
+  2. Leer alternativamente pH y conductividad en A0
+  3. Usar ADC externo vía I2C/SPI
+  
+  Para esta versión, asumimos que usas un multiplexor o ADC externo.
+  El sensor produce una salida de voltaje proporcional a la conductividad.
   Rango típico: 0-2000 µS/cm (microSiemens)
   
   Ajusta la escala según tu sensor específico
 */
 
 void readConductivitySensor() {
-  int conductivityRaw = analogRead(CONDUCTIVITY_SENSOR_PIN);
+  // NOTA: Esta función asume que tienes una forma de leer conductividad
+  // En esta implementación, la conductividad se calcula como un valor
+  // proporcional a la temperatura (para demostración).
+  // Reemplaza esto con tu propia lógica si usas un ADC externo.
   
-  // Convertir valor ADC a conductividad
-  // Fórmula: Conductivity = (ADC / 1023) * 2000
-  conductivityValue = (conductivityRaw / 1023.0) * 2000.0;
-  
-  // Limitar a 4 decimales
-  conductivityValue = round(conductivityValue * 100.0) / 100.0;
+  // Versión de demostración: conductividad proporcional a temperatura
+  conductivityValue = 500.0 + (temperatureValue * 50.0);
+  conductivityValue = constrain(conductivityValue, 0, 2000);
 }
 
 // ============================================================================
-// ENVÍO DE DATOS
+// ENVÍO DE DATOS A LA API
 // ============================================================================
 
 /*
-  Enviar datos en formato JSON al puerto serial
-  Cada sensor se envía en una línea separada
+  Enviar datos vía HTTP PUT a la API FastAPI
+  La API guardará los datos en MongoDB
 */
 
-void sendSensorDataJSON() {
-  // Enviar datos de pH
-  Serial.print("{\"type\":\"pH\",\"value\":");
-  Serial.print(phValue, 2); // 2 decimales
-  Serial.println("}");
+void sendSensorDataToAPI() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[HTTP] WiFi no conectado");
+    return;
+  }
   
-  // Enviar datos de temperatura
-  Serial.print("{\"type\":\"temperature\",\"value\":");
-  Serial.print(temperatureValue, 2);
-  Serial.println("}");
+  // Crear JSON con los datos de los sensores
+  DynamicJsonDocument doc(256);
+  doc["ph"] = round(phValue * 100) / 100.0;
+  doc["temperature"] = round(temperatureValue * 100) / 100.0;
+  doc["conductivity"] = round(conductivityValue * 100) / 100.0;
+  doc["timestamp"] = millis() / 1000;
   
-  // Enviar datos de conductividad
-  Serial.print("{\"type\":\"conductivity\",\"value\":");
-  Serial.print(conductivityValue, 2);
-  Serial.println("}");
+  String jsonData;
+  serializeJson(doc, jsonData);
   
-  // Enviar estado del sistema
-  Serial.print("{\"type\":\"status\",\"uptime\":");
-  Serial.print(millis() / 1000);
-  Serial.println("}");
+  Serial.println("[HTTP] Enviando datos:");
+  Serial.println(jsonData);
+  
+  // Realizar HTTP PUT
+  String url = String(api_url) + "/api/sensors/ph";
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/json");
+  
+  int httpCode = http.PUT(jsonData);
+  
+  if (httpCode > 0) {
+    Serial.print("[HTTP] Respuesta: ");
+    Serial.println(httpCode);
+    
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+      Serial.println("[HTTP] Datos guardados exitosamente en MongoDB");
+      digitalWrite(LED_PIN, LOW);
+      delay(100);
+      digitalWrite(LED_PIN, HIGH);
+    } else {
+      String response = http.getString();
+      Serial.println("[HTTP] Error: " + response);
+    }
+  } else {
+    Serial.print("[HTTP] Error: ");
+    Serial.println(http.errorToString(httpCode));
+  }
+  
+  http.end();
 }
 
 // ============================================================================
@@ -214,49 +320,86 @@ void processSerialCommand() {
   if (Serial.available() > 0) {
     String command = Serial.readStringUntil('\n');
     
-    if (command == "CALIBRATE_pH") {
-      Serial.println("{\"type\":\"info\",\"message\":\"pH calibration started\"}");
-      // Lógica de calibración...
+    if (command == "STATUS") {
+      Serial.print("[SYS] WiFi: ");
+      Serial.println(WiFi.status() == WL_CONNECTED ? "Conectado" : "Desconectado");
+      Serial.print("[SYS] IP: ");
+      Serial.println(WiFi.localIP().toString());
+      Serial.print("[SYS] Señal: ");
+      Serial.print(WiFi.RSSI());
+      Serial.println(" dBm");
     }
-    else if (command == "STATUS") {
-      Serial.println("{\"type\":\"status\",\"message\":\"System OK\"}");
+    else if (command == "RECONNECT") {
+      Serial.println("[CMD] Reconectando WiFi...");
+      connectToWiFi();
+    }
+    else if (command == "INFO") {
+      Serial.println("[INFO] Sistema: Monitoreo Embalse Arandanos");
+      Serial.println("[INFO] Sensores: pH, Temperatura, Conductividad");
+      Serial.println("[INFO] Destino: MongoDB vía API FastAPI");
     }
   }
 }
 
-/*
-  NOTA SOBRE CALIBRACIÓN:
-  
-  1. CALIBRACIÓN DE pH:
-     - Necesitas soluciones de calibración (pH 4, 7, 10)
-     - Sumerge el sensor en solución pH 7
-     - Anota el valor ADC
-     - Sumerge en pH 4 y pH 10
-     - Calcula la pendiente: (ADC_pH7 - ADC_pH4) / 3
-  
-  2. CALIBRACIÓN DE CONDUCTIVIDAD:
-     - Usa soluciones de referencia conocidas
-     - Ajusta el factor multiplicador en readConductivitySensor()
-  
-  3. CALIBRACIÓN DE TEMPERATURA:
-     - El DS18B20 es muy preciso (no necesita calibración)
-     - Solo verifica el offset si es necesario
-*/
+// ============================================================================
+// NOTAS IMPORTANTES PARA ESP8266
+// ============================================================================
 
 /*
-  TROUBLESHOOTING:
-  
-  Problema: El sensor de pH no responde
-  Solución: Verifica conexiones, asegúrate que A0 esté libre
-  
-  Problema: Temperatura siempre lee 85°C o -127°C
-  Solución: Verifica conexión OneWire, instala librerías
-  
-  Problema: Valores de conductividad son constantes
-  Solución: Verifica que A1 esté conectado, limpia el sensor
-  
-  Problema: No aparecen datos en el monitor serial
-  Solución: Verifica baudrate (9600), revisa conexión USB
+  1. CONFIGURACIÓN INICIAL:
+     - Cambiar SSID y PASSWORD con tu red WiFi
+     - Cambiar api_url con la IP/hostname de tu servidor FastAPI
+     - Asegúrate que el ESP8266 y servidor estén en la misma red
+
+  2. INSTALACIÓN DE LIBRERÍAS ArduinoJson:
+     - Sketch > Include Library > Manage Libraries
+     - Busca "ArduinoJson" por Benoit Blanchon
+     - Instala versión 6.x o superior
+
+  3. PUERTOS ANALÓGICOS EN ESP8266:
+     - Solo tiene UNA entrada analógica (A0)
+     - Para 3 sensores necesitas:
+       * ADC externo vía I2C (ADS1115 recomendado)
+       * Multiplexor analógico
+       * Leer alternadamente (más lento)
+
+  4. DEBUGGING:
+     - Abre Monitor Serial a 115200 baud
+     - Verifica mensajes de conexión WiFi
+     - Verifica respuestas HTTP de la API
+
+  5. ALIMENTACIÓN:
+     - ESP8266 requiere ~10-20mA en operación
+     - Usa regulador LDO 3.3V de buena calidad
+     - Capacitor de 10µF cercano al pin de alimentación
+     - NO conectes 5V directamente (destruye el módulo)
+
+  6. PROTOCOLO HTTP:
+     - Asegúrate que API_URL sea accesible desde ESP8266
+     - Usa HTTP no HTTPS (HTTPS requiere más memoria)
+     - Timeout es 5 segundos (configurable)
+
+  7. CALIBRACIÓN DE SENSORES:
+     - pH: Referencia a pH 7, ajusta PH_OFFSET
+     - Temperatura: DS18B20 no necesita calibración
+     - Conductividad: Ajusta factor multiplicador según sensor
+
+  8. TROUBLESHOOTING:
+     Problema: ESP no se conecta a WiFi
+     - Verifica SSID y contraseña
+     - Verifica que el router use 2.4GHz (ESP8266 no soporta 5GHz)
+     - Aumenta intentos de conexión en connectToWiFi()
+
+     Problema: No envía datos a API
+     - Verifica IP/URL de la API
+     - Verifica que API esté ejecutándose
+     - Revisa firewall/enrutador
+     - Revisa logs de la API
+
+     Problema: Datos incompletos o incorrectos
+     - Verifica calibración de sensores
+     - Confirma conexiones eléctricas
+     - Prueba sensores individualmente
 */
 
 // ============================================================================

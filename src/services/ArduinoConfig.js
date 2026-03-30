@@ -1,258 +1,130 @@
 /**
- * Configuración de conexión con Arduino
- * Este archivo contiene ejemplos de cómo conectar el dashboard con datos reales del Arduino
+ * Configuración de conexión con Arduino/ESP8266
+ * Este archivo contiene funciones para conectar el dashboard con la API FastAPI/MongoDB
+ * 
+ * Flujo: ESP8266 → API FastAPI → MongoDB → Frontend Vue.js
  */
 
 // ============================================================================
-// OPCIÓN 1: Fetch API (Polling) - Recomendado para aplicaciones simples
+// CONFIGURACIÓN
 // ============================================================================
 
-export const fetchSensorData = async (apiUrl = 'http://localhost:3000/api/sensors') => {
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const POLL_INTERVAL = 10000 // Polling cada 10 segundos
+
+// ============================================================================
+// OPCIÓN 1: Fetch API (Polling) - Obtener datos del dashboard desde MongoDB
+// ============================================================================
+
+/**
+ * Obtener datos del dashboard desde la API FastAPI
+ * Estos datos son actualizados por el ESP8266 en tiempo real
+ */
+export const fetchDashboardData = async (apiUrl = `${API_BASE_URL}/api/dashboard`) => {
   try {
+    console.log('[API] Obteniendo datos del dashboard desde:', apiUrl)
     const response = await fetch(apiUrl)
-    if (!response.ok) throw new Error('Error en la conexión')
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const data = await response.json()
+    console.log('[API] Datos recibidos:', data)
     return data
   } catch (error) {
-    console.error('Error fetching sensor data:', error)
+    console.error('[API] Error obteniendo datos del dashboard:', error)
     return null
   }
 }
 
-// Uso en App.vue:
-// const updateSensorData = async () => {
-//   const data = await fetchSensorData()
-//   if (data) {
-//     sensors.value = data
-//   }
-// }
-
-// ============================================================================
-// OPCIÓN 2: WebSocket - Recomendado para actualización en tiempo real
-// ============================================================================
-
-export class SensorWebSocketClient {
-  constructor(wsUrl = 'ws://localhost:3000/sensors') {
-    this.wsUrl = wsUrl
-    this.ws = null
-    this.listeners = []
+/**
+ * Obtener la última lectura de sensores desde MongoDB
+ */
+export const fetchLatestSensorReading = async (apiUrl = `${API_BASE_URL}/api/sensors/latest`) => {
+  try {
+    const response = await fetch(apiUrl)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('[API] Error obteniendo última lectura:', error)
+    return null
   }
+}
 
-  connect() {
-    return new Promise((resolve, reject) => {
-      try {
-        this.ws = new WebSocket(this.wsUrl)
+/**
+ * Obtener historial de lecturas de sensores desde MongoDB
+ */
+export const fetchSensorHistory = async (limit = 100) => {
+  try {
+    const apiUrl = `${API_BASE_URL}/api/sensors/history?limit=${limit}`
+    const response = await fetch(apiUrl)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('[API] Error obteniendo historial:', error)
+    return []
+  }
+}
 
-        this.ws.onopen = () => {
-          console.log('WebSocket conectado')
-          resolve()
-        }
-
-        this.ws.onmessage = (event) => {
-          const data = JSON.parse(event.data)
-          this.notifyListeners(data)
-        }
-
-        this.ws.onerror = (error) => {
-          console.error('Error WebSocket:', error)
-          reject(error)
-        }
-
-        this.ws.onclose = () => {
-          console.log('WebSocket desconectado')
-          // Intentar reconectar después de 5 segundos
-          setTimeout(() => this.connect(), 5000)
-        }
-      } catch (error) {
-        reject(error)
-      }
+/**
+ * Iniciar polling automático de datos del dashboard
+ * Usa callback para actualizar datos en tiempo real
+ */
+export const startDashboardPolling = (callback, interval = POLL_INTERVAL) => {
+  console.log('[API] Iniciando polling cada', interval, 'ms')
+  
+  // Primera lectura inmediata
+  fetchDashboardData().then(data => {
+    if (data) callback(data)
+  })
+  
+  // Polling periódico
+  const intervalId = setInterval(() => {
+    fetchDashboardData().then(data => {
+      if (data) callback(data)
     })
-  }
+  }, interval)
+  
+  // Retornar ID para detener el polling
+  return intervalId
+}
 
-  subscribe(callback) {
-    this.listeners.push(callback)
-  }
-
-  unsubscribe(callback) {
-    this.listeners = this.listeners.filter(listener => listener !== callback)
-  }
-
-  notifyListeners(data) {
-    this.listeners.forEach(listener => listener(data))
-  }
-
-  disconnect() {
-    if (this.ws) {
-      this.ws.close()
-    }
+/**
+ * Detener polling automático
+ */
+export const stopDashboardPolling = (intervalId) => {
+  if (intervalId) {
+    clearInterval(intervalId)
+    console.log('[API] Polling detenido')
   }
 }
 
 // Uso en App.vue:
-// const wsClient = new SensorWebSocketClient()
+// import { startDashboardPolling, stopDashboardPolling, fetchDashboardData } from '@/services/ArduinoConfig'
+//
+// const updateSensorData = (dashboardData) => {
+//   sensors.value = {
+//     ph: dashboardData.ph,
+//     temperature: dashboardData.temperature,
+//     conductivity: dashboardData.conductivity
+//   }
+//   lastSync.value = dashboardData.metadata.lastSync
+// }
+//
+// let pollingId
 // 
-// onMounted(async () => {
-//   await wsClient.connect()
-//   wsClient.subscribe((data) => {
-//     sensors.value = data
-//   })
+// onMounted(() => {
+//   pollingId = startDashboardPolling(updateSensorData)
 // })
 //
 // onUnmounted(() => {
-//   wsClient.disconnect()
+//   stopDashboardPolling(pollingId)
 // })
 
-// ============================================================================
-// OPCIÓN 3: Socket.io - Más robusto y con fallbacks automáticos
-// ============================================================================
-
-import io from 'socket.io-client'
-
-export class SensorSocketClient {
-  constructor(serverUrl = 'http://localhost:3000') {
-    this.socket = io(serverUrl, {
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5
-    })
-  }
-
-  connect() {
-    return new Promise((resolve, reject) => {
-      this.socket.on('connect', () => {
-        console.log('Socket.io conectado')
-        resolve()
-      })
-
-      this.socket.on('connect_error', (error) => {
-        console.error('Error de conexión Socket.io:', error)
-        reject(error)
-      })
-    })
-  }
-
-  onSensorUpdate(callback) {
-    this.socket.on('sensor_data', callback)
-  }
-
-  disconnect() {
-    this.socket.disconnect()
-  }
-}
-
-// ============================================================================
-// EJEMPLO DE BACKEND (Node.js + Express + Serial)
-// ============================================================================
-
-/*
-// arduino-server.js
-const express = require('express')
-const SerialPort = require('serialport').SerialPort
-const cors = require('cors')
-const app = express()
-
-app.use(cors())
-app.use(express.json())
-
-// Configurar puerto serial
-const port = new SerialPort({
-  path: '/dev/ttyACM0', // Cambiar según tu sistema (COM3 en Windows)
-  baudRate: 9600
-})
-
-let sensorData = {
-  ph: { value: 7.2, lastUpdated: new Date() },
-  temperature: { value: 22.5, lastUpdated: new Date() },
-  conductivity: { value: 650, lastUpdated: new Date() }
-}
-
-// Parser para datos del Arduino
-port.on('data', (data) => {
-  try {
-    const line = data.toString().trim()
-    const json = JSON.parse(line)
-    
-    // Actualizar datos del sensor
-    if (json.type === 'pH') {
-      sensorData.ph.value = json.value
-      sensorData.ph.lastUpdated = new Date()
-    } else if (json.type === 'temperature') {
-      sensorData.temperature.value = json.value
-      sensorData.temperature.lastUpdated = new Date()
-    } else if (json.type === 'conductivity') {
-      sensorData.conductivity.value = json.value
-      sensorData.conductivity.lastUpdated = new Date()
-    }
-  } catch (error) {
-    console.error('Error parsing Arduino data:', error)
-  }
-})
-
-// Endpoint API
-app.get('/api/sensors', (req, res) => {
-  res.json(sensorData)
-})
-
-app.listen(3000, () => {
-  console.log('Servidor ejecutándose en puerto 3000')
-})
-*/
-
-// ============================================================================
-// EJEMPLO DE CÓDIGO ARDUINO
-// ============================================================================
-
-/*
-#include <DallasTemperature.h>
-#include <OneWire.h>
-
-// Pines
-const int PH_PIN = A0;
-const int TEMP_PIN = 2;
-const int CONDUCTIVITY_PIN = A1;
-
-// Variables
-OneWire oneWire(TEMP_PIN);
-DallasTemperature sensors(&oneWire);
-
-void setup() {
-  Serial.begin(9600);
-  sensors.begin();
-}
-
-void loop() {
-  // Leer pH
-  int phRaw = analogRead(PH_PIN);
-  float ph = 7.0 + (phRaw - 512) * 0.0049;
-  
-  // Leer temperatura
-  sensors.requestTemperatures();
-  float temperature = sensors.getTempCByIndex(0);
-  
-  // Leer conductividad
-  int conductivityRaw = analogRead(CONDUCTIVITY_PIN);
-  float conductivity = (conductivityRaw / 1023.0) * 2000;
-  
-  // Enviar datos en formato JSON
-  Serial.print("{\"type\":\"pH\",\"value\":");
-  Serial.print(ph);
-  Serial.println("}");
-  
-  Serial.print("{\"type\":\"temperature\",\"value\":");
-  Serial.print(temperature);
-  Serial.println("}");
-  
-  Serial.print("{\"type\":\"conductivity\",\"value\":");
-  Serial.print(conductivity);
-  Serial.println("}");
-  
-  delay(3000); // Actualizar cada 3 segundos
-}
-*/
-
 export default {
-  fetchSensorData,
-  SensorWebSocketClient,
-  SensorSocketClient
+  fetchDashboardData,
+  fetchLatestSensorReading,
+  fetchSensorHistory,
+  startDashboardPolling,
+  stopDashboardPolling
 }
+
