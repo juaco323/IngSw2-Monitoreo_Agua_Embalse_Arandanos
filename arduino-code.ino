@@ -44,6 +44,8 @@
 const char *ssid = "TU_SSID";                    // Nombre de tu red WiFi
 const char *password = "TU_PASSWORD";            // Contraseña WiFi
 const char *api_url = "http://192.168.1.100:8000";  // URL de la API FastAPI
+const char *sensor_id = "flotador-1";            // ID del sensor/dispositivo
+const int BATTERY_LEVEL = 80;                     // Reemplazar por lectura real de batería si aplica
 
 // ============================================================================
 // CONFIGURACIÓN DE PINES
@@ -264,12 +266,16 @@ void sendSensorDataToAPI() {
     return;
   }
   
-  // Crear JSON con los datos de los sensores
-  DynamicJsonDocument doc(256);
-  doc["ph"] = round(phValue * 100) / 100.0;
-  doc["temperature"] = round(temperatureValue * 100) / 100.0;
-  doc["conductivity"] = round(conductivityValue * 100) / 100.0;
+  // Crear JSON con el esquema solicitado:
+  // { arduino_id, timestamp, mediciones{ph, temperatura, conductividad}, bateria }
+  DynamicJsonDocument doc(320);
+  doc["arduino_id"] = sensor_id;
   doc["timestamp"] = millis() / 1000;
+  JsonObject mediciones = doc.createNestedObject("mediciones");
+  mediciones["ph"] = round(phValue * 100) / 100.0;
+  mediciones["temperatura"] = round(temperatureValue * 100) / 100.0;
+  mediciones["conductividad"] = round(conductivityValue * 100) / 100.0;
+  doc["bateria"] = BATTERY_LEVEL;
   
   String jsonData;
   serializeJson(doc, jsonData);
@@ -277,8 +283,8 @@ void sendSensorDataToAPI() {
   Serial.println("[HTTP] Enviando datos:");
   Serial.println(jsonData);
   
-  // Realizar HTTP PUT
-  String url = String(api_url) + "/api/sensors/ph";
+  // Realizar HTTP PUT a /api/sensors/{sensor_id}
+  String url = String(api_url) + "/api/sensors/" + String(sensor_id);
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
   

@@ -2,10 +2,12 @@ import os
 import logging
 from datetime import datetime
 from typing import Literal, Optional
+from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import requests
 from pymongo import MongoClient
@@ -13,8 +15,30 @@ from pymongo.errors import ConnectionFailure
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def configure_logging() -> None:
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s: %(message)s [in %(filename)s:%(lineno)d]"
+    )
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+
+    file_handler = RotatingFileHandler("app.log", maxBytes=16384, backupCount=20)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(stream_handler)
+    logger.addHandler(file_handler)
+
+
+configure_logging()
 
 # ============================================================================
 # CONFIGURACIÓN MONGODB
@@ -28,9 +52,9 @@ try:
     # Verificar conexión
     mongo_client.admin.command('ping')
     db = mongo_client[MONGODB_DB]
-    logger.info("✓ Conexión a MongoDB establecida")
+    logger.info("Conexion a MongoDB establecida")
 except ConnectionFailure:
-    logger.warning("⚠ No se pudo conectar a MongoDB. Usando almacenamiento en memoria.")
+    logger.warning("No se pudo conectar a MongoDB. Usando almacenamiento en memoria.")
     mongo_client = None
     db = None
 
@@ -43,6 +67,8 @@ app = FastAPI(
     version="1.0.0",
 )
 
+API_PATH_PREFIX = "/api/"
+
 # Agregar middleware CORS para permitir requests desde el frontend
 app.add_middleware(
     CORSMiddleware,
@@ -51,6 +77,33 @@ app.add_middleware(
     allow_methods=["*"],  # Permitir todos los métodos (GET, POST, OPTIONS, etc)
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    if API_PATH_PREFIX in request.url.path:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": True, "message": str(exc.detail)},
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": str(exc.detail)},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error processing request", exc_info=exc)
+    if API_PATH_PREFIX in request.url.path:
+        return JSONResponse(
+            status_code=500,
+            content={"error": True, "message": "Error processing API request!"},
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
+    )
 
 
 class SensorData(BaseModel):
@@ -71,6 +124,31 @@ class SensorReading(BaseModel):
     temperature: float
     conductivity: float
     timestamp: int
+
+
+class SensorNestedReadings(BaseModel):
+    temperature: float | None = None
+    humidity: float | None = None
+    ph: float | None = None
+    conductivity: float | None = None
+    timestamp: int | None = None
+
+
+class SensorReadingNestedPayload(BaseModel):
+    readings: SensorNestedReadings
+
+
+class SensorMeasurements(BaseModel):
+    ph: float
+    temperatura: float
+    conductividad: float
+
+
+class SensorMongoPayload(BaseModel):
+    arduino_id: str
+    timestamp: int | None = None
+    mediciones: SensorMeasurements
+    bateria: int = Field(..., ge=0, le=100)
 
 
 class SensorDataResponse(BaseModel):
@@ -140,36 +218,78 @@ alerts_store: list[AlertRecord] = [
 # FUNCIONES MONGODB
 # ============================================================================
 
-def save_sensor_reading_to_mongodb(reading: SensorReading) -> Optional[str]:
-    """Guardar lectura de sensores en MongoDB"""
+def _resolve_sensor_timestamp(timestamp: int | None) -> tuple[datetime, int | None]:
+    if timestamp is None:
+        return datetime.utcnow(), None
+
+    # ESP8266 suele enviar millis()/1000; si no parece epoch UTC, usamos hora del servidor.
+    if timestamp >= 1_500_000_000:
+        return datetime.utcfromtimestamp(timestamp), None
+    return datetime.utcnow(), timestamp
+
+
+def save_sensor_payload_to_mongodb(payload: SensorMongoPayload) -> Optional[str]:
+    """Guardar documento con el esquema solicitado por el usuario."""
     if db is None:
         logger.warning("MongoDB no está disponible")
         return None
-    
+
     try:
         collection = db["sensor_readings"]
-        # ESP8266 suele enviar millis()/1000; si no parece epoch UTC, usamos hora del servidor.
-        if reading.timestamp >= 1_500_000_000:
-            sensor_timestamp = datetime.utcfromtimestamp(reading.timestamp)
-            sensor_uptime_seconds = None
-        else:
-            sensor_timestamp = datetime.utcnow()
-            sensor_uptime_seconds = reading.timestamp
+        sensor_timestamp, sensor_uptime_seconds = _resolve_sensor_timestamp(payload.timestamp)
 
         document = {
-            "ph": reading.ph,
-            "temperature": reading.temperature,
-            "conductivity": reading.conductivity,
+            "arduino_id": payload.arduino_id,
             "timestamp": sensor_timestamp,
-            "sensor_uptime_seconds": sensor_uptime_seconds,
-            "created_at": datetime.utcnow()
+            "mediciones": {
+                "ph": payload.mediciones.ph,
+                "temperatura": payload.mediciones.temperatura,
+                "conductividad": payload.mediciones.conductividad,
+            },
+            "bateria": payload.bateria,
         }
+        if sensor_uptime_seconds is not None:
+            document["sensor_uptime_seconds"] = sensor_uptime_seconds
+
         result = collection.insert_one(document)
-        logger.info(f"✓ Lectura guardada en MongoDB con ID: {result.inserted_id}")
+        logger.info(f"Lectura guardada en MongoDB con ID: {result.inserted_id}")
         return str(result.inserted_id)
     except Exception as e:
         logger.error(f"Error guardando en MongoDB: {e}")
         return None
+
+
+def save_sensor_reading_to_mongodb(reading: SensorReading, arduino_id: str = "esp8266_1", bateria: int = 100) -> Optional[str]:
+    """Compatibilidad: convierte formato plano al esquema oficial solicitado."""
+    payload = SensorMongoPayload(
+        arduino_id=arduino_id,
+        timestamp=reading.timestamp,
+        mediciones=SensorMeasurements(
+            ph=reading.ph,
+            temperatura=reading.temperature,
+            conductividad=reading.conductivity,
+        ),
+        bateria=bateria,
+    )
+    return save_sensor_payload_to_mongodb(payload)
+
+
+def normalize_sensor_document(reading: dict) -> dict:
+    """Normaliza documento Mongo (esquema nuevo o legado) al formato usado por la API."""
+    mediciones = reading.get("mediciones", {})
+    ph = mediciones.get("ph", reading.get("ph"))
+    temperature = mediciones.get("temperatura", reading.get("temperature"))
+    conductivity = mediciones.get("conductividad", reading.get("conductivity"))
+
+    return {
+        "id": str(reading.get("_id", reading.get("id", ""))),
+        "arduino_id": reading.get("arduino_id", reading.get("sensor_id", "esp8266_1")),
+        "ph": float(ph) if ph is not None else 0.0,
+        "temperature": float(temperature) if temperature is not None else 0.0,
+        "conductivity": float(conductivity) if conductivity is not None else 0.0,
+        "bateria": int(reading.get("bateria", 100)),
+        "timestamp": reading.get("timestamp", datetime.utcnow()),
+    }
 
 
 def get_latest_sensor_reading() -> Optional[dict]:
@@ -182,9 +302,7 @@ def get_latest_sensor_reading() -> Optional[dict]:
         collection = db["sensor_readings"]
         reading = collection.find_one(sort=[("timestamp", -1)])
         if reading:
-            reading["id"] = str(reading["_id"])
-            del reading["_id"]
-            return reading
+            return normalize_sensor_document(reading)
         return None
     except Exception as e:
         logger.error(f"Error leyendo de MongoDB: {e}")
@@ -200,10 +318,7 @@ def get_sensor_readings_history(limit: int = 100) -> list[dict]:
     try:
         collection = db["sensor_readings"]
         readings = list(collection.find().sort("timestamp", -1).limit(limit))
-        for reading in readings:
-            reading["id"] = str(reading["_id"])
-            del reading["_id"]
-        return readings
+        return [normalize_sensor_document(reading) for reading in readings]
     except Exception as e:
         logger.error(f"Error leyendo historial de MongoDB: {e}")
         return []
@@ -264,7 +379,7 @@ def update_dashboard_state_from_mongodb() -> DashboardResponse | None:
             activeSensors=3,
         ),
     )
-    logger.info("✓ Dashboard actualizado desde MongoDB")
+    logger.info("Dashboard actualizado desde MongoDB")
     return dashboard_state
 
 
@@ -423,6 +538,80 @@ def create_sensor_reading(reading: SensorReading):
         "message": "Lectura guardada",
         "id": mongo_id,
         "data": reading.dict()
+    }
+
+
+@app.put("/api/sensors/{sensor_id}", response_model=dict, status_code=200, tags=["Sensores"])
+def update_sensor_readings_by_id(
+    sensor_id: str,
+    payload: SensorMongoPayload | SensorReadingNestedPayload,
+):
+    """
+    Recibe y guarda lecturas de ESP8266 en MongoDB.
+    Esquema recomendado:
+    {
+      "arduino_id": "flotador-1",
+      "timestamp": 1710788070,
+      "mediciones": {"ph": 6.5, "temperatura": 20, "conductividad": 1},
+      "bateria": 80
+    }
+    También acepta el esquema legacy: {"readings": {...}}.
+    """
+    if isinstance(payload, SensorMongoPayload):
+        normalized_payload = payload.model_copy(
+            update={"arduino_id": payload.arduino_id or sensor_id}
+        )
+        mongo_id = save_sensor_payload_to_mongodb(normalized_payload)
+        response_data = {
+            "arduino_id": normalized_payload.arduino_id,
+            "timestamp": normalized_payload.timestamp,
+            "mediciones": normalized_payload.mediciones.model_dump(),
+            "bateria": normalized_payload.bateria,
+        }
+    else:
+        latest = get_latest_sensor_reading() or {}
+        incoming = payload.readings
+
+        ph = incoming.ph if incoming.ph is not None else latest.get("ph")
+        temperature = incoming.temperature if incoming.temperature is not None else latest.get("temperature")
+        conductivity = incoming.conductivity if incoming.conductivity is not None else latest.get("conductivity")
+
+        if ph is None or temperature is None or conductivity is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Lectura incompleta. Debes enviar ph, temperature y conductivity "
+                    "(o tener una lectura previa para completar valores faltantes)."
+                ),
+            )
+
+        normalized_payload = SensorMongoPayload(
+            arduino_id=sensor_id,
+            timestamp=incoming.timestamp,
+            mediciones=SensorMeasurements(
+                ph=float(ph),
+                temperatura=float(temperature),
+                conductividad=float(conductivity),
+            ),
+            bateria=100,
+        )
+        mongo_id = save_sensor_payload_to_mongodb(normalized_payload)
+        response_data = {
+            "arduino_id": normalized_payload.arduino_id,
+            "timestamp": normalized_payload.timestamp,
+            "mediciones": normalized_payload.mediciones.model_dump(),
+            "bateria": normalized_payload.bateria,
+            "humidity": incoming.humidity,
+        }
+
+    update_dashboard_state_from_mongodb()
+
+    return {
+        "status": "success",
+        "message": "Datos guardados en MongoDB",
+        "id": mongo_id,
+        "sensor_id": sensor_id,
+        "data": response_data,
     }
 
 
