@@ -234,10 +234,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import DeviceList from './components/DeviceList.vue'
 import SensorCard from './components/SensorCard.vue'
 import { checkAndSendAlerts } from './services/AlertService.js'
+import { fetchDashboardData, fetchSensorHistory } from './services/ArduinoConfig.js'
 
 const ALERT_TABLE_LIMIT = 20
 const SENSOR_LIMITS = {
@@ -248,45 +249,18 @@ const SENSOR_LIMITS = {
 
 const currentView = ref('devices')
 const selectedDeviceId = ref(null)
-const lastSync = ref('hace 10 segundos')
+const lastSync = ref('Sin datos del Arduino')
 const showAllTodayAlerts = ref(false)
 
 const devices = ref([
   {
     id: 1,
-    name: 'Arduino Embalse A',
-    model: 'Arduino Uno - Zona Norte',
-    status: 'connected',
-    lastUpdate: 'hace 2 segundos',
-    battery: 89,
-    sensors: { ph: 7.2, temperature: 22.5, conductivity: 650 }
-  },
-  {
-    id: 2,
-    name: 'Arduino Embalse B',
-    model: 'Arduino Uno - Zona Sur',
-    status: 'connected',
-    lastUpdate: 'hace 1 segundo',
-    battery: 74,
-    sensors: { ph: 7.1, temperature: 21.8, conductivity: 620 }
-  },
-  {
-    id: 3,
-    name: 'Arduino Embalse C',
-    model: 'Arduino Uno - Zona Este',
-    status: 'connected',
-    lastUpdate: 'hace 3 segundos',
-    battery: 81,
-    sensors: { ph: 7.4, temperature: 23.2, conductivity: 680 }
-  },
-  {
-    id: 4,
-    name: 'Arduino Embalse D',
-    model: 'Arduino Uno - Zona Oeste',
+    name: 'ESP8266 Embalse',
+    model: 'ESP8266 - Lectura en tiempo real',
     status: 'disconnected',
-    lastUpdate: 'hace 5 minutos',
-    battery: 52,
-    sensors: { ph: 6.8, temperature: 20.6, conductivity: 590 }
+    lastUpdate: 'Sin datos',
+    battery: 100,
+    sensors: { ph: 0, temperature: 0, conductivity: 0 }
   }
 ])
 
@@ -296,7 +270,7 @@ const selectedDevice = computed(() => {
     name: 'Sin dispositivo',
     model: 'Selecciona un dispositivo para comenzar',
     status: 'disconnected',
-    sensors: { ph: 7.2, temperature: 22.5, conductivity: 650 }
+    sensors: { ph: 0, temperature: 0, conductivity: 0 }
   }
 })
 
@@ -311,8 +285,7 @@ const historyFilters = ref({
   deviceId: 'all',
   date: 'all'
 })
-const lastTelegramAlertByDevice = new Map()
-const TELEGRAM_ALERT_COOLDOWN_MS = 60000
+const lastProcessedAlertTimestamp = ref(0)
 
 const getStatus = (value, min, max) => {
   const percentage = ((value - min) / (max - min)) * 100
@@ -352,86 +325,30 @@ const formatTime = (date) => {
   return `${hour}:${minute}:${second}`
 }
 
-const createRecord = (device) => {
-  const now = new Date()
-  const ph = Number(device.sensors.ph.toFixed(2))
-  const temperature = Number(device.sensors.temperature.toFixed(2))
-  const conductivity = Number(device.sensors.conductivity.toFixed(2))
+const createRecord = ({ ph, temperature, conductivity, timestamp }) => {
+  const now = timestamp ? new Date(timestamp) : new Date()
+  const safePh = Number(Number(ph).toFixed(2))
+  const safeTemperature = Number(Number(temperature).toFixed(2))
+  const safeConductivity = Number(Number(conductivity).toFixed(2))
   const isAlert =
-    ph < SENSOR_LIMITS.ph.min || ph > SENSOR_LIMITS.ph.max ||
-    temperature < SENSOR_LIMITS.temperature.min || temperature > SENSOR_LIMITS.temperature.max ||
-    conductivity < SENSOR_LIMITS.conductivity.min || conductivity > SENSOR_LIMITS.conductivity.max
+    safePh < SENSOR_LIMITS.ph.min || safePh > SENSOR_LIMITS.ph.max ||
+    safeTemperature < SENSOR_LIMITS.temperature.min || safeTemperature > SENSOR_LIMITS.temperature.max ||
+    safeConductivity < SENSOR_LIMITS.conductivity.min || safeConductivity > SENSOR_LIMITS.conductivity.max
 
   return {
-    id: `${device.id}-${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,
-    deviceId: device.id,
-    deviceName: device.name,
-    ph,
-    temperature,
-    conductivity,
-    battery: device.battery,
+    id: `real-${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,
+    deviceId: 1,
+    deviceName: devices.value[0].name,
+    ph: safePh,
+    temperature: safeTemperature,
+    conductivity: safeConductivity,
+    battery: devices.value[0].battery,
     date: formatDate(now),
     time: formatTime(now),
     timestamp: now.getTime(),
     telegramStatus: isAlert ? 'pendiente' : 'sin alerta',
-    emailStatus: 'no implementado',
+    emailStatus: isAlert ? 'pendiente' : 'sin alerta',
     isAlert
-  }
-}
-
-const updateRecordTelegramStatus = (recordId, status) => {
-  const index = historyRecords.value.findIndex((record) => record.id === recordId)
-  if (index === -1) return
-  historyRecords.value[index] = {
-    ...historyRecords.value[index],
-    telegramStatus: status
-  }
-}
-
-const sendTelegramNotification = async (record) => {
-  const lastSent = lastTelegramAlertByDevice.get(record.deviceId) || 0
-  const now = Date.now()
-  if (now - lastSent < TELEGRAM_ALERT_COOLDOWN_MS) {
-    updateRecordTelegramStatus(record.id, 'omitido (cooldown)')
-    return
-  }
-
-  try {
-    const response = await fetch('/api/notify-sensor-alert', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        deviceName: record.deviceName,
-        ph: record.ph,
-        temperature: record.temperature,
-        conductivity: record.conductivity,
-        date: record.date,
-        time: record.time
-      })
-    })
-
-    if (!response.ok) {
-      updateRecordTelegramStatus(record.id, 'fallo')
-      return
-    }
-
-    const body = await response.json()
-    if (body.status === 'ok' && body.sent > 0) {
-      lastTelegramAlertByDevice.set(record.deviceId, now)
-      updateRecordTelegramStatus(record.id, 'enviado')
-      return
-    }
-
-    if (body.reason === 'no-subscribed-chats') {
-      updateRecordTelegramStatus(record.id, 'sin suscriptores')
-      return
-    }
-
-    updateRecordTelegramStatus(record.id, 'omitido')
-  } catch (_) {
-    updateRecordTelegramStatus(record.id, 'fallo')
   }
 }
 
@@ -554,31 +471,50 @@ const downloadHistoryPdf = () => {
   win.print()
 }
 
-const seedHistoricalData = () => {
-  const dates = [0, 1, 2]
-  dates.forEach((daysAgo) => {
-    devices.value.forEach((device) => {
-      for (let i = 0; i < 18; i += 1) {
-        const sampleDate = new Date()
-        sampleDate.setDate(sampleDate.getDate() - daysAgo)
-        sampleDate.setHours(6 + i, Math.floor(Math.random() * 60), Math.floor(Math.random() * 60), 0)
-        const clone = {
-          ...device,
-          sensors: {
-            ph: 6.4 + Math.random() * 2.3,
-            temperature: 18 + Math.random() * 12,
-            conductivity: 450 + Math.random() * 900
-          },
-          battery: Math.max(35, device.battery - Math.floor(Math.random() * 15))
-        }
-        const record = createRecord(clone)
-        record.timestamp = sampleDate.getTime()
-        record.date = formatDate(sampleDate)
-        record.time = formatTime(sampleDate)
-        historyRecords.value.push(record)
-      }
+const formatLastSync = (value) => {
+  if (!value) return 'Sin datos del Arduino'
+  const diff = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000))
+  if (diff < 60) return `hace ${diff}s`
+  return `hace ${Math.floor(diff / 60)}m`
+}
+
+const loadHistoryFromApi = async () => {
+  const rows = await fetchSensorHistory(300)
+  if (!Array.isArray(rows)) return
+  historyRecords.value = rows.map((item) =>
+    createRecord({
+      ph: item.ph,
+      temperature: item.temperature,
+      conductivity: item.conductivity,
+      timestamp: item.timestamp
     })
-  })
+  )
+}
+
+const loadDashboardFromApi = async () => {
+  const dashboard = await fetchDashboardData()
+  if (!dashboard) {
+    devices.value[0] = {
+      ...devices.value[0],
+      status: 'disconnected',
+      lastUpdate: 'Sin datos',
+      sensors: { ph: 0, temperature: 0, conductivity: 0 }
+    }
+    lastSync.value = 'Sin datos del Arduino'
+    return
+  }
+
+  devices.value[0] = {
+    ...devices.value[0],
+    status: dashboard.metadata.arduinoConnected ? 'connected' : 'disconnected',
+    lastUpdate: formatLastSync(dashboard.ph.lastUpdated),
+    sensors: {
+      ph: Number(dashboard.ph.value),
+      temperature: Number(dashboard.temperature.value),
+      conductivity: Number(dashboard.conductivity.value)
+    }
+  }
+  lastSync.value = formatLastSync(dashboard.metadata.lastSync)
 }
 
 const selectDevice = (device) => {
@@ -590,6 +526,7 @@ const selectDevice = (device) => {
 
 const openHistory = () => {
   currentView.value = 'history'
+  loadHistoryFromApi()
   stopSensorUpdates()
 }
 
@@ -603,43 +540,24 @@ const lastAlertTimestamp = ref({})
 
 const updateSensorData = async () => {
   if (!selectedDeviceId.value) return
-  const index = devices.value.findIndex((device) => device.id === selectedDeviceId.value)
-  if (index === -1) return
-  const device = devices.value[index]
-  const statusConnected = device.status === 'connected'
-  if (!statusConnected) return
 
-  device.sensors.ph = 6.0 + Math.random() * 3.0
-  device.sensors.temperature = 17 + Math.random() * 20
-  device.sensors.conductivity = 350 + Math.random() * 1800
-  device.battery = Math.max(15, device.battery - (Math.random() > 0.8 ? 1 : 0))
-  device.lastUpdate = 'hace unos segundos'
-  devices.value[index] = { ...device }
+  await loadDashboardFromApi()
+  await loadHistoryFromApi()
 
-  const newRecord = createRecord(device)
-  historyRecords.value.push(newRecord)
-  if (newRecord.isAlert) {
-    sendTelegramNotification(newRecord)
-  }
-  lastSync.value = `hace ${Math.floor(Math.random() * 12) + 1}s`
+  const latestRecord = historyRecords.value[0]
+  if (!latestRecord || !latestRecord.isAlert) return
 
-  // Enviar alertas al backend si hay mediciones fuera de rango
-  if (newRecord.isAlert) {
-    const now = Date.now()
-    const lastTime = lastAlertTimestamp.value[device.id] || 0
-    
-    // Evitar enviar la misma alerta dos veces en menos de 30 segundos
-    if (now - lastTime > 30000) {
-      await checkAndSendAlerts(device, SENSOR_LIMITS)
-      lastAlertTimestamp.value[device.id] = now
-    }
+  if (latestRecord.timestamp > lastProcessedAlertTimestamp.value) {
+    await checkAndSendAlerts(devices.value[0], SENSOR_LIMITS)
+    lastProcessedAlertTimestamp.value = latestRecord.timestamp
+    lastAlertTimestamp.value[devices.value[0].id] = Date.now()
   }
 }
 
 const startSensorUpdates = () => {
   if (updateInterval) clearInterval(updateInterval)
   updateSensorData()
-  updateInterval = setInterval(updateSensorData, 3000)
+  updateInterval = setInterval(updateSensorData, 5000)
 }
 
 const stopSensorUpdates = () => {
@@ -649,7 +567,10 @@ const stopSensorUpdates = () => {
   }
 }
 
-seedHistoricalData()
+onMounted(() => {
+  selectedDeviceId.value = 1
+  updateSensorData()
+})
 
 onUnmounted(() => {
   stopSensorUpdates()

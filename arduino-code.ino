@@ -50,6 +50,7 @@ const char *api_url = "http://192.168.1.100:8000";  // URL de la API FastAPI
 // ============================================================================
 
 const int PH_SENSOR_PIN = A0;           // Pin analógico para pH (A0)
+const int CONDUCTIVITY_SENSOR_PIN = A0; // Pin analógico para conductividad (A0, usar mux/ADC externo)
 const int TEMP_SENSOR_PIN = D4;         // Pin digital para sensor temperatura (D4/GPIO2)
 const int LED_PIN = D8;                 // LED indicador de estado (D8/GPIO15)
 
@@ -241,13 +242,10 @@ void readTemperatureSensor() {
 */
 
 void readConductivitySensor() {
-  // NOTA: Esta función asume que tienes una forma de leer conductividad
-  // En esta implementación, la conductividad se calcula como un valor
-  // proporcional a la temperatura (para demostración).
-  // Reemplaza esto con tu propia lógica si usas un ADC externo.
-  
-  // Versión de demostración: conductividad proporcional a temperatura
-  conductivityValue = 500.0 + (temperatureValue * 50.0);
+  int conductivityRaw = analogRead(CONDUCTIVITY_SENSOR_PIN);
+
+  // Conversión lineal de ADC a conductividad (ajustar según calibración real)
+  conductivityValue = (conductivityRaw / 1023.0) * 2000.0;
   conductivityValue = constrain(conductivityValue, 0, 2000);
 }
 

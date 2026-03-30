@@ -122,39 +122,7 @@ class MailerSendConfig(BaseModel):
     to_emails: list[str]
 
 
-dashboard_state = DashboardResponse(
-    ph=SensorData(
-        value=7.2,
-        min=6.0,
-        max=8.5,
-        safeMax=8.0,
-        lastUpdated=datetime.utcnow(),
-        status="stable",
-    ),
-    temperature=SensorData(
-        value=22.5,
-        min=5,
-        max=35,
-        safeMax=28,
-        lastUpdated=datetime.utcnow(),
-        status="stable",
-    ),
-    conductivity=SensorData(
-        value=650,
-        min=100,
-        max=2000,
-        safeMax=1500,
-        lastUpdated=datetime.utcnow(),
-        status="stable",
-    ),
-    metadata=Metadata(
-        systemStatus="operational",
-        arduinoConnected=True,
-        lastSync=datetime.utcnow(),
-        uptime=3600,
-        activeSensors=3,
-    ),
-)
+dashboard_state: DashboardResponse | None = None
 
 alerts_store: list[AlertRecord] = [
     AlertRecord(
@@ -180,11 +148,20 @@ def save_sensor_reading_to_mongodb(reading: SensorReading) -> Optional[str]:
     
     try:
         collection = db["sensor_readings"]
+        # ESP8266 suele enviar millis()/1000; si no parece epoch UTC, usamos hora del servidor.
+        if reading.timestamp >= 1_500_000_000:
+            sensor_timestamp = datetime.utcfromtimestamp(reading.timestamp)
+            sensor_uptime_seconds = None
+        else:
+            sensor_timestamp = datetime.utcnow()
+            sensor_uptime_seconds = reading.timestamp
+
         document = {
             "ph": reading.ph,
             "temperature": reading.temperature,
             "conductivity": reading.conductivity,
-            "timestamp": datetime.utcfromtimestamp(reading.timestamp),
+            "timestamp": sensor_timestamp,
+            "sensor_uptime_seconds": sensor_uptime_seconds,
             "created_at": datetime.utcnow()
         }
         result = collection.insert_one(document)
@@ -205,7 +182,8 @@ def get_latest_sensor_reading() -> Optional[dict]:
         collection = db["sensor_readings"]
         reading = collection.find_one(sort=[("timestamp", -1)])
         if reading:
-            reading["_id"] = str(reading["_id"])
+            reading["id"] = str(reading["_id"])
+            del reading["_id"]
             return reading
         return None
     except Exception as e:
@@ -223,63 +201,71 @@ def get_sensor_readings_history(limit: int = 100) -> list[dict]:
         collection = db["sensor_readings"]
         readings = list(collection.find().sort("timestamp", -1).limit(limit))
         for reading in readings:
-            reading["_id"] = str(reading["_id"])
+            reading["id"] = str(reading["_id"])
+            del reading["_id"]
         return readings
     except Exception as e:
         logger.error(f"Error leyendo historial de MongoDB: {e}")
         return []
 
 
-def update_dashboard_state_from_mongodb() -> None:
+def update_dashboard_state_from_mongodb() -> DashboardResponse | None:
     """Actualizar el estado del dashboard desde la última lectura en MongoDB"""
     global dashboard_state
     
     reading = get_latest_sensor_reading()
-    if reading:
-        now = datetime.utcnow()
-        
-        # Determinar estado basado en rangos
-        def get_status(value: float, min_val: float, max_val: float, safe_max: float) -> str:
-            if value < min_val or value > max_val:
-                return "critical"
-            elif value > safe_max:
-                return "warning"
-            return "stable"
-        
-        dashboard_state = DashboardResponse(
-            ph=SensorData(
-                value=reading["ph"],
-                min=6.0,
-                max=8.5,
-                safeMax=8.0,
-                lastUpdated=reading.get("timestamp", now),
-                status=get_status(reading["ph"], 6.0, 8.5, 8.0),
-            ),
-            temperature=SensorData(
-                value=reading["temperature"],
-                min=5,
-                max=35,
-                safeMax=28,
-                lastUpdated=reading.get("timestamp", now),
-                status=get_status(reading["temperature"], 5, 35, 28),
-            ),
-            conductivity=SensorData(
-                value=reading["conductivity"],
-                min=100,
-                max=2000,
-                safeMax=1500,
-                lastUpdated=reading.get("timestamp", now),
-                status=get_status(reading["conductivity"], 100, 2000, 1500),
-            ),
-            metadata=Metadata(
-                systemStatus="operational",
-                arduinoConnected=True,
-                lastSync=now,
-                uptime=int((now - reading.get("timestamp", now)).total_seconds()),
-                activeSensors=3,
-            ),
-        )
-        logger.info("✓ Dashboard actualizado desde MongoDB")
+    if not reading:
+        dashboard_state = None
+        return None
+
+    now = datetime.utcnow()
+
+    # Determinar estado basado en rangos
+    def get_status(value: float, min_val: float, max_val: float, safe_max: float) -> str:
+        if value < min_val or value > max_val:
+            return "critical"
+        if value > safe_max:
+            return "warning"
+        return "stable"
+
+    last_updated = reading.get("timestamp", now)
+    connected = (now - last_updated).total_seconds() <= 30
+
+    dashboard_state = DashboardResponse(
+        ph=SensorData(
+            value=reading["ph"],
+            min=6.0,
+            max=8.5,
+            safeMax=8.0,
+            lastUpdated=last_updated,
+            status=get_status(reading["ph"], 6.0, 8.5, 8.0),
+        ),
+        temperature=SensorData(
+            value=reading["temperature"],
+            min=5,
+            max=35,
+            safeMax=28,
+            lastUpdated=last_updated,
+            status=get_status(reading["temperature"], 5, 35, 28),
+        ),
+        conductivity=SensorData(
+            value=reading["conductivity"],
+            min=100,
+            max=2000,
+            safeMax=1500,
+            lastUpdated=last_updated,
+            status=get_status(reading["conductivity"], 100, 2000, 1500),
+        ),
+        metadata=Metadata(
+            systemStatus="operational" if connected else "degraded",
+            arduinoConnected=connected,
+            lastSync=now,
+            uptime=max(0, int((now - last_updated).total_seconds())),
+            activeSensors=3,
+        ),
+    )
+    logger.info("✓ Dashboard actualizado desde MongoDB")
+    return dashboard_state
 
 
 def get_mailersend_config() -> MailerSendConfig:
@@ -381,8 +367,13 @@ def health() -> dict[str, str]:
 @app.get("/api/dashboard", response_model=DashboardResponse, tags=["Dashboard"])
 def get_dashboard_data() -> DashboardResponse:
     """Obtener datos del dashboard, actualizados desde MongoDB"""
-    update_dashboard_state_from_mongodb()
-    return dashboard_state
+    state = update_dashboard_state_from_mongodb()
+    if state is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No hay lecturas reales aún. Enciende el Arduino/ESP8266 para enviar datos.",
+        )
+    return state
 
 
 # ============================================================================
