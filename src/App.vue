@@ -23,6 +23,11 @@
         <div class="status-indicator" :class="`indicator-${overallStatus}`"></div>
         <span class="status-label">{{ overallStatusText }}</span>
       </div>
+      <div class="data-source-badge" :class="`source-${selectedDevice.dataSource}`">
+        <span v-if="selectedDevice.dataSource === 'real'">📊 Datos Reales</span>
+        <span v-else-if="selectedDevice.dataSource === 'simulated'">⚙️ Datos Simulados</span>
+        <span v-else>❓ Fuente Desconocida</span>
+      </div>
     </header>
 
     <main class="dashboard-content">
@@ -291,7 +296,8 @@ const devices = ref([
     status: 'disconnected',
     lastUpdate: 'Sin datos',
     battery: 100,
-    sensors: { ph: 0, temperature: 0, conductivity: 0 }
+    sensors: { ph: 0, temperature: 0, conductivity: 0 },
+    dataSource: 'simulated'  // 'real' o 'simulated'
   }
 ])
 
@@ -570,7 +576,8 @@ const loadDashboardFromApi = async () => {
       ...devices.value[0],
       status: 'disconnected',
       lastUpdate: 'Sin datos',
-      sensors: { ph: 0, temperature: 0, conductivity: 0 }
+      sensors: { ph: 0, temperature: 0, conductivity: 0 },
+      dataSource: 'unknown'
     }
     lastSync.value = 'Sin datos del Arduino'
     return
@@ -580,6 +587,19 @@ const loadDashboardFromApi = async () => {
   requestMonitor.value.dashboard.lastStatus = 'ok'
   requestMonitor.value.dashboard.lastSuccessAt = formatDateTime(new Date())
 
+  // Obtener información de diagnóstico para saber la fuente de datos
+  let dataSource = 'unknown'
+  try {
+    const diagResponse = await fetch('http://localhost:8000/api/diagnostics')
+    if (diagResponse.ok) {
+      const diag = await diagResponse.json()
+      dataSource = diag.data_source || 'unknown'
+    }
+  } catch (e) {
+    // Si falla el diagnóstico, no es un problema crítico
+    console.log('No se pudo obtener datos de diagnóstico:', e)
+  }
+
   devices.value[0] = {
     ...devices.value[0],
     status: dashboard.metadata.arduinoConnected ? 'connected' : 'disconnected',
@@ -588,7 +608,8 @@ const loadDashboardFromApi = async () => {
       ph: Number(dashboard.ph.value),
       temperature: Number(dashboard.temperature.value),
       conductivity: Number(dashboard.conductivity.value)
-    }
+    },
+    dataSource: dataSource
   }
   lastSync.value = formatLastSync(dashboard.metadata.lastSync)
 }
@@ -746,6 +767,35 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   color: #555;
+}
+
+.data-source-badge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.source-real {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.source-simulated {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.source-unknown {
+  background-color: #e2e3e5;
+  color: #383d41;
+  border: 1px solid #d6d8db;
 }
 
 @keyframes pulse {
