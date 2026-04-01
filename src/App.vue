@@ -23,6 +23,11 @@
         <div class="status-indicator" :class="`indicator-${overallStatus}`"></div>
         <span class="status-label">{{ overallStatusText }}</span>
       </div>
+      <div class="data-source-badge" :class="`source-${selectedDevice.dataSource}`">
+        <span v-if="selectedDevice.dataSource === 'real'">📊 Datos Reales</span>
+        <span v-else-if="selectedDevice.dataSource === 'simulated'">⚙️ Datos Simulados</span>
+        <span v-else>❓ Fuente Desconocida</span>
+      </div>
     </header>
 
     <main class="dashboard-content">
@@ -72,6 +77,37 @@
             <div class="info-card-value" :class="selectedDevice.status === 'connected' ? 'connected' : 'disconnected'">
               {{ selectedDevice.status === 'connected' ? 'Conectado' : 'Desconectado' }}
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="diagnostics-section">
+        <div class="alerts-header">
+          <h2 class="section-title">Diagnóstico de solicitudes (tiempo real)</h2>
+          <span class="alerts-count">Actualiza cada 5s</span>
+        </div>
+        <div class="diagnostics-grid">
+          <div class="diagnostic-card">
+            <div class="diagnostic-title">Dashboard (/api/dashboard)</div>
+            <div class="diagnostic-row"><span>Intentos</span><strong>{{ requestMonitor.dashboard.attempts }}</strong></div>
+            <div class="diagnostic-row"><span>Exitosas</span><strong>{{ requestMonitor.dashboard.ok }}</strong></div>
+            <div class="diagnostic-row"><span>Errores</span><strong>{{ requestMonitor.dashboard.error }}</strong></div>
+            <div class="diagnostic-row"><span>Estado</span><strong>{{ requestMonitor.dashboard.lastStatus }}</strong></div>
+            <div class="diagnostic-row"><span>Ultimo dato</span><strong>{{ requestMonitor.dashboard.lastSuccessAt }}</strong></div>
+          </div>
+          <div class="diagnostic-card">
+            <div class="diagnostic-title">Historial (/api/sensors/history)</div>
+            <div class="diagnostic-row"><span>Intentos</span><strong>{{ requestMonitor.history.attempts }}</strong></div>
+            <div class="diagnostic-row"><span>Exitosas</span><strong>{{ requestMonitor.history.ok }}</strong></div>
+            <div class="diagnostic-row"><span>Errores</span><strong>{{ requestMonitor.history.error }}</strong></div>
+            <div class="diagnostic-row"><span>Estado</span><strong>{{ requestMonitor.history.lastStatus }}</strong></div>
+            <div class="diagnostic-row"><span>Ultimo dato</span><strong>{{ requestMonitor.history.lastSuccessAt }}</strong></div>
+          </div>
+          <div class="diagnostic-card">
+            <div class="diagnostic-title">Render del frontend</div>
+            <div class="diagnostic-row"><span>Ultima pintura</span><strong>{{ requestMonitor.ui.lastRenderedAt }}</strong></div>
+            <div class="diagnostic-row"><span>Ultimo error</span><strong>{{ requestMonitor.ui.lastError }}</strong></div>
+            <div class="diagnostic-row"><span>Dispositivo</span><strong>{{ selectedDevice.status === 'connected' ? 'Conectado' : 'Desconectado' }}</strong></div>
           </div>
         </div>
       </section>
@@ -234,10 +270,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import DeviceList from './components/DeviceList.vue'
 import SensorCard from './components/SensorCard.vue'
 import { checkAndSendAlerts } from './services/AlertService.js'
+import { fetchDashboardData, fetchSensorHistory } from './services/ArduinoConfig.js'
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 const ALERT_TABLE_LIMIT = 20
 const SENSOR_LIMITS = {
@@ -248,45 +287,19 @@ const SENSOR_LIMITS = {
 
 const currentView = ref('devices')
 const selectedDeviceId = ref(null)
-const lastSync = ref('hace 10 segundos')
+const lastSync = ref('Sin datos del Arduino')
 const showAllTodayAlerts = ref(false)
 
 const devices = ref([
   {
     id: 1,
-    name: 'Arduino Embalse A',
-    model: 'Arduino Uno - Zona Norte',
-    status: 'connected',
-    lastUpdate: 'hace 2 segundos',
-    battery: 89,
-    sensors: { ph: 7.2, temperature: 22.5, conductivity: 650 }
-  },
-  {
-    id: 2,
-    name: 'Arduino Embalse B',
-    model: 'Arduino Uno - Zona Sur',
-    status: 'connected',
-    lastUpdate: 'hace 1 segundo',
-    battery: 74,
-    sensors: { ph: 7.1, temperature: 21.8, conductivity: 620 }
-  },
-  {
-    id: 3,
-    name: 'Arduino Embalse C',
-    model: 'Arduino Uno - Zona Este',
-    status: 'connected',
-    lastUpdate: 'hace 3 segundos',
-    battery: 81,
-    sensors: { ph: 7.4, temperature: 23.2, conductivity: 680 }
-  },
-  {
-    id: 4,
-    name: 'Arduino Embalse D',
-    model: 'Arduino Uno - Zona Oeste',
+    name: 'ESP8266 Embalse',
+    model: 'ESP8266 - Lectura en tiempo real',
     status: 'disconnected',
-    lastUpdate: 'hace 5 minutos',
-    battery: 52,
-    sensors: { ph: 6.8, temperature: 20.6, conductivity: 590 }
+    lastUpdate: 'Sin datos',
+    battery: 100,
+    sensors: { ph: 0, temperature: 0, conductivity: 0 },
+    dataSource: 'simulated'  // 'real' o 'simulated'
   }
 ])
 
@@ -296,7 +309,7 @@ const selectedDevice = computed(() => {
     name: 'Sin dispositivo',
     model: 'Selecciona un dispositivo para comenzar',
     status: 'disconnected',
-    sensors: { ph: 7.2, temperature: 22.5, conductivity: 650 }
+    sensors: { ph: 0, temperature: 0, conductivity: 0 }
   }
 })
 
@@ -311,8 +324,28 @@ const historyFilters = ref({
   deviceId: 'all',
   date: 'all'
 })
-const lastTelegramAlertByDevice = new Map()
-const TELEGRAM_ALERT_COOLDOWN_MS = 60000
+const lastProcessedAlertTimestamp = ref(0)
+
+const requestMonitor = ref({
+  dashboard: {
+    attempts: 0,
+    ok: 0,
+    error: 0,
+    lastStatus: 'sin solicitudes',
+    lastSuccessAt: 'sin datos'
+  },
+  history: {
+    attempts: 0,
+    ok: 0,
+    error: 0,
+    lastStatus: 'sin solicitudes',
+    lastSuccessAt: 'sin datos'
+  },
+  ui: {
+    lastRenderedAt: 'sin render',
+    lastError: 'sin errores'
+  }
+})
 
 const getStatus = (value, min, max) => {
   const percentage = ((value - min) / (max - min)) * 100
@@ -352,86 +385,34 @@ const formatTime = (date) => {
   return `${hour}:${minute}:${second}`
 }
 
-const createRecord = (device) => {
-  const now = new Date()
-  const ph = Number(device.sensors.ph.toFixed(2))
-  const temperature = Number(device.sensors.temperature.toFixed(2))
-  const conductivity = Number(device.sensors.conductivity.toFixed(2))
+const formatDateTime = (date) => {
+  return `${formatDate(date)} ${formatTime(date)}`
+}
+
+const createRecord = ({ ph, temperature, conductivity, timestamp }) => {
+  const now = timestamp ? new Date(timestamp) : new Date()
+  const safePh = Number(Number(ph).toFixed(2))
+  const safeTemperature = Number(Number(temperature).toFixed(2))
+  const safeConductivity = Number(Number(conductivity).toFixed(2))
   const isAlert =
-    ph < SENSOR_LIMITS.ph.min || ph > SENSOR_LIMITS.ph.max ||
-    temperature < SENSOR_LIMITS.temperature.min || temperature > SENSOR_LIMITS.temperature.max ||
-    conductivity < SENSOR_LIMITS.conductivity.min || conductivity > SENSOR_LIMITS.conductivity.max
+    safePh < SENSOR_LIMITS.ph.min || safePh > SENSOR_LIMITS.ph.max ||
+    safeTemperature < SENSOR_LIMITS.temperature.min || safeTemperature > SENSOR_LIMITS.temperature.max ||
+    safeConductivity < SENSOR_LIMITS.conductivity.min || safeConductivity > SENSOR_LIMITS.conductivity.max
 
   return {
-    id: `${device.id}-${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,
-    deviceId: device.id,
-    deviceName: device.name,
-    ph,
-    temperature,
-    conductivity,
-    battery: device.battery,
+    id: `real-${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,
+    deviceId: 1,
+    deviceName: devices.value[0].name,
+    ph: safePh,
+    temperature: safeTemperature,
+    conductivity: safeConductivity,
+    battery: devices.value[0].battery,
     date: formatDate(now),
     time: formatTime(now),
     timestamp: now.getTime(),
     telegramStatus: isAlert ? 'pendiente' : 'sin alerta',
-    emailStatus: 'no implementado',
+    emailStatus: isAlert ? 'pendiente' : 'sin alerta',
     isAlert
-  }
-}
-
-const updateRecordTelegramStatus = (recordId, status) => {
-  const index = historyRecords.value.findIndex((record) => record.id === recordId)
-  if (index === -1) return
-  historyRecords.value[index] = {
-    ...historyRecords.value[index],
-    telegramStatus: status
-  }
-}
-
-const sendTelegramNotification = async (record) => {
-  const lastSent = lastTelegramAlertByDevice.get(record.deviceId) || 0
-  const now = Date.now()
-  if (now - lastSent < TELEGRAM_ALERT_COOLDOWN_MS) {
-    updateRecordTelegramStatus(record.id, 'omitido (cooldown)')
-    return
-  }
-
-  try {
-    const response = await fetch('/api/notify-sensor-alert', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        deviceName: record.deviceName,
-        ph: record.ph,
-        temperature: record.temperature,
-        conductivity: record.conductivity,
-        date: record.date,
-        time: record.time
-      })
-    })
-
-    if (!response.ok) {
-      updateRecordTelegramStatus(record.id, 'fallo')
-      return
-    }
-
-    const body = await response.json()
-    if (body.status === 'ok' && body.sent > 0) {
-      lastTelegramAlertByDevice.set(record.deviceId, now)
-      updateRecordTelegramStatus(record.id, 'enviado')
-      return
-    }
-
-    if (body.reason === 'no-subscribed-chats') {
-      updateRecordTelegramStatus(record.id, 'sin suscriptores')
-      return
-    }
-
-    updateRecordTelegramStatus(record.id, 'omitido')
-  } catch (_) {
-    updateRecordTelegramStatus(record.id, 'fallo')
   }
 }
 
@@ -554,48 +535,100 @@ const downloadHistoryPdf = () => {
   win.print()
 }
 
-const seedHistoricalData = () => {
-  const dates = [0, 1, 2]
-  dates.forEach((daysAgo) => {
-    devices.value.forEach((device) => {
-      for (let i = 0; i < 18; i += 1) {
-        const sampleDate = new Date()
-        sampleDate.setDate(sampleDate.getDate() - daysAgo)
-        sampleDate.setHours(6 + i, Math.floor(Math.random() * 60), Math.floor(Math.random() * 60), 0)
-        const clone = {
-          ...device,
-          sensors: {
-            ph: 6.4 + Math.random() * 2.3,
-            temperature: 18 + Math.random() * 12,
-            conductivity: 450 + Math.random() * 900
-          },
-          battery: Math.max(35, device.battery - Math.floor(Math.random() * 15))
-        }
-        const record = createRecord(clone)
-        record.timestamp = sampleDate.getTime()
-        record.date = formatDate(sampleDate)
-        record.time = formatTime(sampleDate)
-        historyRecords.value.push(record)
-      }
+const formatLastSync = (value) => {
+  if (!value) return 'Sin datos del Arduino'
+  const diff = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000))
+  if (diff < 60) return `hace ${diff}s`
+  return `hace ${Math.floor(diff / 60)}m`
+}
+
+const loadHistoryFromApi = async () => {
+  requestMonitor.value.history.attempts += 1
+  const rows = await fetchSensorHistory(300)
+  if (!Array.isArray(rows)) {
+    requestMonitor.value.history.error += 1
+    requestMonitor.value.history.lastStatus = 'error'
+    requestMonitor.value.ui.lastError = 'Fallo GET /api/sensors/history'
+    return
+  }
+
+  requestMonitor.value.history.ok += 1
+  requestMonitor.value.history.lastStatus = `ok (${rows.length} filas)`
+  requestMonitor.value.history.lastSuccessAt = formatDateTime(new Date())
+
+  historyRecords.value = rows.map((item) =>
+    createRecord({
+      ph: item.ph,
+      temperature: item.temperature,
+      conductivity: item.conductivity,
+      timestamp: item.timestamp
     })
-  })
+  )
+}
+
+const loadDashboardFromApi = async () => {
+  requestMonitor.value.dashboard.attempts += 1
+  const dashboard = await fetchDashboardData()
+  console.log('[DEBUG] Respuesta de /api/dashboard:', dashboard)
+  if (!dashboard) {
+    requestMonitor.value.dashboard.error += 1
+    requestMonitor.value.dashboard.lastStatus = 'error'
+    requestMonitor.value.ui.lastError = 'Fallo GET /api/dashboard'
+    devices.value[0] = {
+      ...devices.value[0],
+      status: 'disconnected',
+      lastUpdate: 'Sin datos',
+      sensors: { ph: 0, temperature: 0, conductivity: 0 },
+      dataSource: 'unknown'
+    }
+    lastSync.value = 'Sin datos del Arduino'
+    return
+  }
+
+  requestMonitor.value.dashboard.ok += 1
+  requestMonitor.value.dashboard.lastStatus = 'ok'
+  requestMonitor.value.dashboard.lastSuccessAt = formatDateTime(new Date())
+
+  // Obtener información de diagnóstico para saber la fuente de datos
+  let dataSource = 'unknown'
+  try {
+    const diagResponse = await fetch(`${API_BASE_URL}/api/diagnostics`)
+    if (diagResponse.ok) {
+      const diag = await diagResponse.json()
+      dataSource = diag.data_source || 'unknown'
+    }
+  } catch (e) {
+    // Si falla el diagnóstico, no es un problema crítico
+    console.log('No se pudo obtener datos de diagnóstico:', e)
+  }
+
+  devices.value[0] = {
+    ...devices.value[0],
+    status: dashboard.metadata.arduinoConnected ? 'connected' : 'disconnected',
+    lastUpdate: formatLastSync(dashboard.ph.lastUpdated),
+    sensors: {
+      ph: Number(dashboard.ph.value),
+      temperature: Number(dashboard.temperature.value),
+      conductivity: Number(dashboard.conductivity.value)
+    },
+    dataSource: dataSource
+  }
+  lastSync.value = formatLastSync(dashboard.metadata.lastSync)
 }
 
 const selectDevice = (device) => {
   selectedDeviceId.value = device.id
   currentView.value = 'dashboard'
   showAllTodayAlerts.value = false
-  startSensorUpdates()
 }
 
 const openHistory = () => {
   currentView.value = 'history'
-  stopSensorUpdates()
+  loadHistoryFromApi()
 }
 
 const goBack = () => {
   currentView.value = 'devices'
-  stopSensorUpdates()
 }
 
 let updateInterval = null
@@ -603,43 +636,32 @@ const lastAlertTimestamp = ref({})
 
 const updateSensorData = async () => {
   if (!selectedDeviceId.value) return
-  const index = devices.value.findIndex((device) => device.id === selectedDeviceId.value)
-  if (index === -1) return
-  const device = devices.value[index]
-  const statusConnected = device.status === 'connected'
-  if (!statusConnected) return
 
-  device.sensors.ph = 6.0 + Math.random() * 3.0
-  device.sensors.temperature = 17 + Math.random() * 20
-  device.sensors.conductivity = 350 + Math.random() * 1800
-  device.battery = Math.max(15, device.battery - (Math.random() > 0.8 ? 1 : 0))
-  device.lastUpdate = 'hace unos segundos'
-  devices.value[index] = { ...device }
+  await loadDashboardFromApi()
 
-  const newRecord = createRecord(device)
-  historyRecords.value.push(newRecord)
-  if (newRecord.isAlert) {
-    sendTelegramNotification(newRecord)
+  // El historial solo es necesario cuando se visualiza dashboard/historial.
+  if (currentView.value === 'dashboard' || currentView.value === 'history') {
+    await loadHistoryFromApi()
   }
-  lastSync.value = `hace ${Math.floor(Math.random() * 12) + 1}s`
 
-  // Enviar alertas al backend si hay mediciones fuera de rango
-  if (newRecord.isAlert) {
-    const now = Date.now()
-    const lastTime = lastAlertTimestamp.value[device.id] || 0
-    
-    // Evitar enviar la misma alerta dos veces en menos de 30 segundos
-    if (now - lastTime > 30000) {
-      await checkAndSendAlerts(device, SENSOR_LIMITS)
-      lastAlertTimestamp.value[device.id] = now
-    }
+  requestMonitor.value.ui.lastRenderedAt = formatDateTime(new Date())
+
+  if (currentView.value !== 'dashboard') return
+
+  const latestRecord = historyRecords.value[0]
+  if (!latestRecord || !latestRecord.isAlert) return
+
+  if (latestRecord.timestamp > lastProcessedAlertTimestamp.value) {
+    await checkAndSendAlerts(devices.value[0], SENSOR_LIMITS)
+    lastProcessedAlertTimestamp.value = latestRecord.timestamp
+    lastAlertTimestamp.value[devices.value[0].id] = Date.now()
   }
 }
 
 const startSensorUpdates = () => {
   if (updateInterval) clearInterval(updateInterval)
   updateSensorData()
-  updateInterval = setInterval(updateSensorData, 3000)
+  updateInterval = setInterval(updateSensorData, 5000)
 }
 
 const stopSensorUpdates = () => {
@@ -649,7 +671,10 @@ const stopSensorUpdates = () => {
   }
 }
 
-seedHistoricalData()
+onMounted(() => {
+  selectedDeviceId.value = 1
+  startSensorUpdates()
+})
 
 onUnmounted(() => {
   stopSensorUpdates()
@@ -750,6 +775,35 @@ onUnmounted(() => {
   color: #555;
 }
 
+.data-source-badge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.source-real {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.source-simulated {
+  background-color: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+}
+
+.source-unknown {
+  background-color: #e2e3e5;
+  color: #383d41;
+  border: 1px solid #d6d8db;
+}
+
 @keyframes pulse {
   0%, 100% {
     opacity: 1;
@@ -842,7 +896,8 @@ onUnmounted(() => {
 
 .alerts-section,
 .filters-section,
-.charts-section {
+.charts-section,
+.diagnostics-section {
   margin-top: 28px;
   background: #ffffff;
   border-radius: 12px;
@@ -955,6 +1010,39 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.diagnostic-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f9fafb;
+}
+
+.diagnostic-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 10px;
+}
+
+.diagnostic-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #4b5563;
+  margin-top: 6px;
+}
+
+.diagnostic-row strong {
+  color: #111827;
+}
+
 .line-chart {
   width: 100%;
   height: 120px;
@@ -1023,7 +1111,8 @@ onUnmounted(() => {
 
   .alerts-section,
   .filters-section,
-  .charts-section {
+  .charts-section,
+  .diagnostics-section {
     margin-top: 20px;
     padding: 16px;
   }
