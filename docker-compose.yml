@@ -1,6 +1,39 @@
 version: '3.8'
 
 services:
+  backend:
+    build:
+      context: ./backend_fastapi
+      dockerfile: Dockerfile
+    container_name: backend-fastapi
+    restart: always
+    environment:
+      MONGODB_URL: mongodb://admin:Panconpalta1@mongodb:27017/?authSource=admin
+      MONGODB_DB: Arandanos
+      SIMULATED_DATA_ENABLED: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - arandanos-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ""
+    container_name: frontend-arandanos
+    restart: always
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - arandanos-network
+
   database:
     image: postgres:17
     container_name: postgres_contenedor

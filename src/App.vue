@@ -276,7 +276,7 @@ import SensorCard from './components/SensorCard.vue'
 import { checkAndSendAlerts } from './services/AlertService.js'
 import { fetchDashboardData, fetchSensorHistory } from './services/ArduinoConfig.js'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
 const ALERT_TABLE_LIMIT = 20
 const SENSOR_LIMITS = {

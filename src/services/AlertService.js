@@ -2,7 +2,8 @@
  * Servicio para enviar alertas al backend cuando sensores estén fuera de rango
  */
 
-const API_URL = 'http://localhost:8000/api/alerts'
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+const API_URL = `${API_BASE_URL}/api/alerts`
 
 export const sendAlertToBackend = async (deviceName, sensor, value, measurement, min, max) => {
   try {
