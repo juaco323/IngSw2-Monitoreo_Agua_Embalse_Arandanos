@@ -274,7 +274,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import DeviceList from './components/DeviceList.vue'
 import SensorCard from './components/SensorCard.vue'
 import { checkAndSendAlerts } from './services/AlertService.js'
-import { fetchDashboardData, fetchSensorHistory } from './services/ArduinoConfig.js'
+import { fetchDashboardData, fetchSensorHistory, DATA_MODE, IS_SIMULATED_MODE } from './services/ArduinoConfig.js'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
@@ -299,7 +299,7 @@ const devices = ref([
     lastUpdate: 'Sin datos',
     battery: 100,
     sensors: { ph: 0, temperature: 0, conductivity: 0 },
-    dataSource: 'simulated'  // 'real' o 'simulated'
+    dataSource: IS_SIMULATED_MODE ? 'simulated' : 'real'
   }
 ])
 
@@ -410,8 +410,8 @@ const createRecord = ({ ph, temperature, conductivity, timestamp }) => {
     date: formatDate(now),
     time: formatTime(now),
     timestamp: now.getTime(),
-    telegramStatus: isAlert ? 'pendiente' : 'sin alerta',
-    emailStatus: isAlert ? 'pendiente' : 'sin alerta',
+    telegramStatus: IS_SIMULATED_MODE ? 'deshabilitado (simulado)' : (isAlert ? 'pendiente' : 'sin alerta'),
+    emailStatus: IS_SIMULATED_MODE ? 'deshabilitado (simulado)' : (isAlert ? 'pendiente' : 'sin alerta'),
     isAlert
   }
 }
@@ -553,7 +553,7 @@ const loadHistoryFromApi = async () => {
   }
 
   requestMonitor.value.history.ok += 1
-  requestMonitor.value.history.lastStatus = `ok (${rows.length} filas)`
+  requestMonitor.value.history.lastStatus = IS_SIMULATED_MODE ? `simulated (${rows.length} filas)` : `ok (${rows.length} filas)`
   requestMonitor.value.history.lastSuccessAt = formatDateTime(new Date())
 
   historyRecords.value = rows.map((item) =>
@@ -586,20 +586,22 @@ const loadDashboardFromApi = async () => {
   }
 
   requestMonitor.value.dashboard.ok += 1
-  requestMonitor.value.dashboard.lastStatus = 'ok'
+  requestMonitor.value.dashboard.lastStatus = IS_SIMULATED_MODE ? 'simulated' : 'ok'
   requestMonitor.value.dashboard.lastSuccessAt = formatDateTime(new Date())
 
-  // Obtener información de diagnóstico para saber la fuente de datos
-  let dataSource = 'unknown'
-  try {
-    const diagResponse = await fetch(`${API_BASE_URL}/api/diagnostics`)
-    if (diagResponse.ok) {
-      const diag = await diagResponse.json()
-      dataSource = diag.data_source || 'unknown'
+  // En modo simulated evitamos llamadas de diagnóstico al backend.
+  let dataSource = IS_SIMULATED_MODE ? 'simulated' : 'real'
+  if (!IS_SIMULATED_MODE) {
+    try {
+      const diagResponse = await fetch(`${API_BASE_URL}/api/diagnostics`)
+      if (diagResponse.ok) {
+        const diag = await diagResponse.json()
+        dataSource = diag.data_source || 'real'
+      }
+    } catch (e) {
+      // Si falla el diagnóstico, no es un problema crítico
+      console.log('No se pudo obtener datos de diagnóstico:', e)
     }
-  } catch (e) {
-    // Si falla el diagnóstico, no es un problema crítico
-    console.log('No se pudo obtener datos de diagnóstico:', e)
   }
 
   devices.value[0] = {
@@ -647,6 +649,7 @@ const updateSensorData = async () => {
   requestMonitor.value.ui.lastRenderedAt = formatDateTime(new Date())
 
   if (currentView.value !== 'dashboard') return
+  if (IS_SIMULATED_MODE) return
 
   const latestRecord = historyRecords.value[0]
   if (!latestRecord || !latestRecord.isAlert) return
@@ -673,6 +676,7 @@ const stopSensorUpdates = () => {
 
 onMounted(() => {
   selectedDeviceId.value = 1
+  console.log('[FRONTEND] VITE_DATA_MODE:', DATA_MODE)
   startSensorUpdates()
 })
 

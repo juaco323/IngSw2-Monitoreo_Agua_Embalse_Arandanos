@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend_fastapi
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      MONGODB_URL: mongodb://admin:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+      MONGODB_DB: ${MONGODB_DB:-Arandanos}
+      SIMULATED_DATA_ENABLED: ${SIMULATED_DATA_ENABLED:-false}
+      MAILERSEND_API_TOKEN: ${MAILERSEND_API_TOKEN:-}
+      MAILERSEND_FROM_EMAIL: ${MAILERSEND_FROM_EMAIL:-}
+      MAILERSEND_FROM_NAME: ${MAILERSEND_FROM_NAME:-Monitoreo Embalse Arandanos}
+      MAILERSEND_TO_EMAILS: ${MAILERSEND_TO_EMAILS:-}
+      MAILERSEND_TEMPLATE_ID: ${MAILERSEND_TEMPLATE_ID:-}
+      API_PORT: 8000
+      API_HOST: 0.0.0.0
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    expose:
+      - "8000"
+    networks:
+      - arandanos-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_DATA_MODE: ${VITE_DATA_MODE:-real}
+    restart: always
+    depends_on:
+      - backend
+    expose:
+      - "80"
+    networks:
+      - arandanos-network
+
+  database:
+    image: postgres:17
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    volumes:
+      - ./backup_proyecto.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - arandanos-network
+
+  mongodb:
+    image: mongo:7.0
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD is required}
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:-Arandanos}
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    expose:
+      - "27017"
+    networks:
+      - arandanos-network
+
+volumes:
+  postgres_data:
+  mongodb_data:
+
+networks:
+  arandanos-network:
+    driver: bridge

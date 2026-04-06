@@ -24,7 +24,7 @@ const char* apPassword = "12345678";
 
 // URL de tu API REST para registrar lecturas
 // Importante: usa la IP LAN del PC donde corre FastAPI (no localhost).
-const char* serverName = "https://deployarandanosv2-production.up.railway.app/api/sensors/ph";
+const char* serverName = "https://api.tu-dominio.com/api/sensors/ph";
 
 // Debe coincidir con el struct del sender
 typedef struct struct_message {

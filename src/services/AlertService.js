@@ -3,9 +3,15 @@
  */
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+const DATA_MODE = String(import.meta.env.VITE_DATA_MODE ?? 'real').trim().toLowerCase()
+const IS_SIMULATED_MODE = DATA_MODE === 'simulated'
 const API_URL = `${API_BASE_URL}/api/alerts`
 
 export const sendAlertToBackend = async (deviceName, sensor, value, measurement, min, max) => {
+  if (IS_SIMULATED_MODE) {
+    return null
+  }
+
   try {
     const payload = {
       embalse: deviceName,
@@ -40,6 +46,10 @@ export const sendAlertToBackend = async (deviceName, sensor, value, measurement,
 }
 
 export const checkAndSendAlerts = async (device, sensorLimits) => {
+  if (IS_SIMULATED_MODE) {
+    return
+  }
+
   const ph = device.sensors.ph
   const temperature = device.sensors.temperature
   const conductivity = device.sensors.conductivity
