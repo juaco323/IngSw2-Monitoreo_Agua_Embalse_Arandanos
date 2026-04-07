@@ -1,4 +1,26 @@
 <template>
+  <router-view></router-view>
+</template>
+
+<script setup>
+import { onMounted } from 'vue'
+import { useAuthStore } from './stores/authStore'
+
+const authStore = useAuthStore()
+
+onMounted(async () => {
+  // Inicializar autenticación y escuchar cambios
+  await authStore.initializeAuth()
+  authStore.subscribeToAuthChanges()
+})
+</script>
+
+<style scoped>
+/* Los estilos se encontrarán en las vistas individuales */
+</style>
+
+<!-- Código anterior preservado como comentario para referencia:
+<template>
   <DeviceList
     v-if="currentView === 'devices'"
     :devices-data="devices"
