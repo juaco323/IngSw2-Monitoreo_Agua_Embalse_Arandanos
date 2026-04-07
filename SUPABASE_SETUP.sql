@@ -123,11 +123,27 @@ CREATE TRIGGER on_auth_user_created
 -- Función para crear límites de alerta por defecto
 CREATE OR REPLACE FUNCTION public.create_default_alert_limits()
 RETURNS TRIGGER AS $$
+DECLARE
+  global_limits RECORD;
 BEGIN
   IF NEW.role = 'user' THEN
-    INSERT INTO public.alert_limits (user_id, ph_min, ph_max, temp_min, temp_max, turbidity_max)
-    VALUES (NEW.id, 6.5, 8.5, 15, 30, 5)
-    ON CONFLICT (user_id) DO NOTHING;
+    -- Leer límites globales
+    SELECT ph_min, ph_max, temp_min, temp_max, conductivity_min, conductivity_max
+    INTO global_limits
+    FROM public.global_alert_limits
+    LIMIT 1;
+    
+    -- Si no existen límites globales, usar valores por defecto
+    IF global_limits IS NULL THEN
+      INSERT INTO public.alert_limits (user_id, ph_min, ph_max, temp_min, temp_max, conductivity_min, conductivity_max)
+      VALUES (NEW.id, 6.5, 8.5, 15, 30, 0, 2000)
+      ON CONFLICT (user_id) DO NOTHING;
+    ELSE
+      -- Copiar límites globales al nuevo usuario
+      INSERT INTO public.alert_limits (user_id, ph_min, ph_max, temp_min, temp_max, conductivity_min, conductivity_max)
+      VALUES (NEW.id, global_limits.ph_min, global_limits.ph_max, global_limits.temp_min, global_limits.temp_max, global_limits.conductivity_min, global_limits.conductivity_max)
+      ON CONFLICT (user_id) DO NOTHING;
+    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -179,3 +195,8 @@ CREATE POLICY "Solo admin puede editar límites globales"
   USING (
     auth.uid() IN (SELECT id FROM users_roles WHERE role = 'admin')
   );
+
+-- Insertar registro inicial de límites globales
+INSERT INTO public.global_alert_limits (ph_min, ph_max, temp_min, temp_max, conductivity_min, conductivity_max)
+VALUES (6.5, 8.5, 15, 30, 0, 2000)
+ON CONFLICT DO NOTHING;
