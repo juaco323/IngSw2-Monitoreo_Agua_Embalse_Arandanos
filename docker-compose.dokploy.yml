@@ -68,7 +68,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "mongosh --quiet --host localhost --port 27017 --username admin --password \"$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 }).ok\" | grep 1",
+          "mongosh --quiet --host localhost --port 27017 --username admin --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 }).ok\" | grep 1",
         ]
       interval: 10s
       timeout: 5s
