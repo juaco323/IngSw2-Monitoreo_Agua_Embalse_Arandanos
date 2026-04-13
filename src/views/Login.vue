@@ -79,18 +79,19 @@ const handleLogin = async () => {
     return
   }
 
-  const result = await authStore.login(form.value.email, form.value.password)
-
-  if (result.success) {
-    // Redirigir según el rol
-    if (authStore.isAdmin) {
-      router.push('/admin')
-    } else {
-      router.push('/devices')
-    }
-  } else {
-    error.value = result.error || 'Error al iniciar sesión'
+  // Demostración: Determinar rol según el email
+  let userRole = 'user'
+  if (form.value.email.includes('admin')) {
+    userRole = 'admin'
   }
+
+  // Guardar información de autenticación en localStorage
+  localStorage.setItem('isAuthenticated', 'true')
+  localStorage.setItem('userEmail', form.value.email)
+  localStorage.setItem('userRole', userRole)
+
+  // Redirigir al dashboard
+  router.push('/dashboard')
 }
 </script>
 

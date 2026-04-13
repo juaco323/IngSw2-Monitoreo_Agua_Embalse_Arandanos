@@ -1,80 +1,43 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '../stores/authStore'
 
-// Vistas de autenticación
-import Login from '../views/Login.vue'
-import Register from '../views/Register.vue'
-
-// Vistas de usuario normal
-import DeviceList from '../components/DeviceList.vue'
-import Dashboard from '../views/Dashboard.vue'
-import HistoricalData from '../views/HistoricalData.vue'
-
-// Vistas de administrador
-import AdminDashboard from '../views/AdminDashboard.vue'
-import AdminUsers from '../views/AdminUsers.vue'
-import AdminAlerts from '../views/AdminAlerts.vue'
+// Importación lazy de vistas
+const Login = () => import('./views/Login.vue')
+const Register = () => import('./views/Register.vue')
+const UserDashboard = () => import('./views/UserDashboard.vue')
+const AlertsManagement = () => import('./views/AlertsManagement.vue')
 
 const routes = [
   {
     path: '/',
-    redirect: () => {
-      const authStore = useAuthStore()
-      if (!authStore.isAuthenticated) return '/login'
-      return authStore.isAdmin ? '/admin' : '/devices'
-    },
+    redirect: '/dashboard'
   },
   {
     path: '/login',
     name: 'Login',
     component: Login,
-    meta: { requiresGuest: true, title: 'Iniciar Sesión' },
+    meta: { title: 'Iniciar Sesión' },
   },
   {
     path: '/register',
     name: 'Register',
     component: Register,
-    meta: { requiresGuest: true, title: 'Registrarse' },
+    meta: { title: 'Registrarse' },
   },
 
-  // Rutas de usuario normal
+  // Dashboard unificado para usuario normal y admin
   {
-    path: '/devices',
-    name: 'DeviceList',
-    component: DeviceList,
-    meta: { requiresAuth: true, roles: ['user', 'admin'], title: 'Dispositivos' },
-  },
-  {
-    path: '/dashboard/:deviceId',
+    path: '/dashboard',
     name: 'Dashboard',
-    component: Dashboard,
-    meta: { requiresAuth: true, roles: ['user', 'admin'], title: 'Dashboard' },
-  },
-  {
-    path: '/historical',
-    name: 'HistoricalData',
-    component: HistoricalData,
-    meta: { requiresAuth: true, roles: ['user', 'admin'], title: 'Datos Históricos' },
+    component: UserDashboard,
+    meta: { title: 'Dashboard' },
   },
 
-  // Rutas de administrador
+  // Gestión de alertas (solo admin)
   {
-    path: '/admin',
-    name: 'AdminDashboard',
-    component: AdminDashboard,
-    meta: { requiresAuth: true, roles: ['admin'], title: 'Panel de Administración' },
-  },
-  {
-    path: '/admin/users',
-    name: 'AdminUsers',
-    component: AdminUsers,
-    meta: { requiresAuth: true, roles: ['admin'], title: 'Gestión de Usuarios' },
-  },
-  {
-    path: '/admin/alerts',
-    name: 'AdminAlerts',
-    component: AdminAlerts,
-    meta: { requiresAuth: true, roles: ['admin'], title: 'Gestión de Límites de Alerta' },
+    path: '/alerts',
+    name: 'AlertsManagement',
+    component: AlertsManagement,
+    meta: { title: 'Gestión de Alertas' },
   },
 
   // Catch-all para rutas no encontradas
@@ -90,39 +53,19 @@ const router = createRouter({
 })
 
 // Guard global de navegación
-router.beforeEach(async (to, from, next) => {
-  const authStore = useAuthStore()
-
-  // Inicializar autenticación si no está hecha
-  if (!authStore.user && !authStore.isLoading) {
-    await authStore.initializeAuth()
-  }
-
+router.beforeEach((to, from, next) => {
   // Actualizar título de la página
   document.title = to.meta.title
     ? `${to.meta.title} - Monitoreo Embalse`
     : 'Monitoreo Embalse'
 
-  // Si la ruta requiere autenticación
-  if (to.meta.requiresAuth) {
-    if (!authStore.isAuthenticated) {
-      return next('/login')
+  // Redirigir a login si no estamos autenticados y no es login/register
+  if (to.path !== '/login' && to.path !== '/register') {
+    const isAuthenticated = localStorage.getItem('isAuthenticated')
+    if (!isAuthenticated) {
+      next('/login')
+      return
     }
-
-    // Verificar roles si están definidos
-    if (to.meta.roles && !to.meta.roles.includes(authStore.userRole)) {
-      // Redirigir según el rol
-      if (authStore.isAdmin) {
-        return next('/admin')
-      } else {
-        return next('/devices')
-      }
-    }
-  }
-
-  // Si la ruta requiere que NO esté autenticado (login, register)
-  if (to.meta.requiresGuest && authStore.isAuthenticated) {
-    return next(authStore.isAdmin ? '/admin' : '/devices')
   }
 
   next()

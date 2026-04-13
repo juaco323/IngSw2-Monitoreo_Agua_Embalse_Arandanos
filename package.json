@@ -13,11 +13,13 @@
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.8",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "pinia": "^2.1.7",
     "pip": "^0.0.1",
     "vue": "^3.5.30",
-    "vue-router": "^4.4.0",
-    "pinia": "^2.1.7",
-    "@supabase/supabase-js": "^2.39.8"
+    "vue-router": "^4.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.5",
