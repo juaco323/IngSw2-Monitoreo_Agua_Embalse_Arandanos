@@ -3,8 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 // Importación lazy de vistas
 const Login = () => import('./views/Login.vue')
 const Register = () => import('./views/Register.vue')
-const UserDashboard = () => import('./views/UserDashboard.vue')
-const AlertsManagement = () => import('./views/AlertsManagement.vue')
+const DeviceDashboard = () => import('./components/DeviceDashboard.vue')
 
 const routes = [
   {
@@ -28,16 +27,8 @@ const routes = [
   {
     path: '/dashboard',
     name: 'Dashboard',
-    component: UserDashboard,
+    component: DeviceDashboard,
     meta: { title: 'Dashboard' },
-  },
-
-  // Gestión de alertas (solo admin)
-  {
-    path: '/alerts',
-    name: 'AlertsManagement',
-    component: AlertsManagement,
-    meta: { title: 'Gestión de Alertas' },
   },
 
   // Catch-all para rutas no encontradas

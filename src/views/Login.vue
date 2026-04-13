@@ -1,3 +1,4 @@
+
 <template>
   <div class="login-container">
     <div class="login-box">
@@ -36,9 +37,9 @@
         <button
           type="submit"
           class="login-btn"
-          :disabled="authStore.isLoading"
+          :disabled="isLoading"
         >
-          <span v-if="!authStore.isLoading">Iniciar Sesión</span>
+          <span v-if="!isLoading">Iniciar Sesión</span>
           <span v-else>Cargando...</span>
         </button>
       </form>
@@ -59,10 +60,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/authStore'
 
 const router = useRouter()
-const authStore = useAuthStore()
 
 const form = ref({
   email: '',
@@ -70,6 +69,7 @@ const form = ref({
 })
 
 const error = ref('')
+const isLoading = ref(false)
 
 const handleLogin = async () => {
   error.value = ''
