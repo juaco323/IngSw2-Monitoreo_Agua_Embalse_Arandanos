@@ -278,6 +278,9 @@ alerts_store: list[AlertRecord] = [
     )
 ]
 
+# Almacenamiento en memoria para datos simulados
+simulated_data_store: list[dict] = []
+
 # Variable para controlar la tarea de background que genera datos simulados
 background_task: Optional[asyncio.Task] = None
 # Desactivado por defecto para priorizar datos reales del ESP8266.
@@ -392,37 +395,42 @@ def normalize_sensor_document(reading: dict) -> dict:
 
 
 def get_latest_sensor_reading() -> Optional[dict]:
-    """Obtener la última lectura de sensores desde MongoDB"""
-    if db is None:
-        logger.warning("MongoDB no está disponible")
-        return None
+    """Obtener la última lectura de sensores desde MongoDB o memoria"""
+    if db is not None:
+        try:
+            collection = db["sensor_readings"]
+            # Usamos _id para obtener la última inserción real y evitar bloqueos por
+            # dispositivos con reloj desfasado o timestamps futuros.
+            reading = collection.find_one(sort=[("_id", -1)])
+            if reading:
+                return normalize_sensor_document(reading)
+        except Exception as e:
+            logger.error(f"Error leyendo de MongoDB: {e}")
     
-    try:
-        collection = db["sensor_readings"]
-        # Usamos _id para obtener la última inserción real y evitar bloqueos por
-        # dispositivos con reloj desfasado o timestamps futuros.
-        reading = collection.find_one(sort=[("_id", -1)])
-        if reading:
-            return normalize_sensor_document(reading)
-        return None
-    except Exception as e:
-        logger.error(f"Error leyendo de MongoDB: {e}")
-        return None
+    # Fallback: usar datos en memoria
+    if simulated_data_store:
+        reading = simulated_data_store[-1]  # Último elemento
+        return normalize_sensor_document(reading)
+    
+    return None
 
 
 def get_sensor_readings_history(limit: int = 100) -> list[dict]:
     """Obtener historial de lecturas de sensores"""
-    if db is None:
-        logger.warning("MongoDB no está disponible")
-        return []
+    if db is not None:
+        try:
+            collection = db["sensor_readings"]
+            readings = list(collection.find().sort("_id", -1).limit(limit))
+            return [normalize_sensor_document(reading) for reading in readings]
+        except Exception as e:
+            logger.error(f"Error leyendo historial de MongoDB: {e}")
     
-    try:
-        collection = db["sensor_readings"]
-        readings = list(collection.find().sort("_id", -1).limit(limit))
+    # Fallback: usar datos en memoria
+    if simulated_data_store:
+        readings = simulated_data_store[-limit:][::-1]  # Invertir para que estén en orden descendente
         return [normalize_sensor_document(reading) for reading in readings]
-    except Exception as e:
-        logger.error(f"Error leyendo historial de MongoDB: {e}")
-        return []
+    
+    return []
 
 
 def update_dashboard_state_from_mongodb() -> DashboardResponse | None:
@@ -676,10 +684,19 @@ def generate_simulated_sensor_data() -> SensorMongoPayload:
     temp_value += random.uniform(-0.3, 0.3)
     conductivity_value += random.uniform(-20, 20)
     
+    # Ocasionalmente generar datos fuera de rango para crear alertas
+    rand = random.random()
+    if rand < 0.15:  # 15% de probabilidad de alerta en pH
+        ph_value = random.choice([random.uniform(5.0, 6.0), random.uniform(8.5, 9.0)])
+    elif rand < 0.30:  # 15% de probabilidad de alerta en temperatura
+        temp_value = random.choice([random.uniform(2, 5), random.uniform(35, 40)])
+    elif rand < 0.40:  # 10% de probabilidad de alerta en conductividad
+        conductivity_value = random.choice([random.uniform(50, 100), random.uniform(2000, 2500)])
+    
     # Limitar rangos
-    ph_value = max(6.0, min(8.5, ph_value))
-    temp_value = max(5, min(35, temp_value))
-    conductivity_value = max(100, min(2000, conductivity_value))
+    ph_value = max(4.0, min(10.0, ph_value))
+    temp_value = max(0, min(50, temp_value))
+    conductivity_value = max(0, min(3000, conductivity_value))
     
     payload = SensorMongoPayload(
         arduino_id="simulador-arandanos",
@@ -689,33 +706,52 @@ def generate_simulated_sensor_data() -> SensorMongoPayload:
             temperatura=round(temp_value, 2),
             conductividad=round(conductivity_value, 2),
         ),
-        bateria=95,
+        bateria=random.randint(60, 100),
     )
     return payload
 
 
 async def simulated_data_background_task():
-    """Tarea de background que genera y guarda datos simulados cada 10 segundos"""
-    logger.info("[INFO] Iniciando generador de datos simulados (cada 10 segundos)")
+    """Tarea de background que genera y guarda datos simulados cada 3 segundos"""
+    logger.info("[INFO] Iniciando generador de datos simulados (cada 3 segundos)")
     
     while SIMULATED_DATA_ENABLED:
         try:
             # Generar datos simulados
             payload = generate_simulated_sensor_data()
             
-            # Guardar en MongoDB
-            mongo_id = save_sensor_payload_to_mongodb(payload)
+            # Guardar en MongoDB si está disponible
+            if db is not None:
+                mongo_id = save_sensor_payload_to_mongodb(payload)
+            else:
+                # Guardar en memoria
+                doc = {
+                    "_id": str(len(simulated_data_store) + 1),
+                    "arduino_id": payload.arduino_id,
+                    "timestamp": datetime.fromtimestamp(payload.timestamp, tz=timezone.utc) if payload.timestamp else utc_now(),
+                    "mediciones": {
+                        "ph": payload.mediciones.ph,
+                        "temperatura": payload.mediciones.temperatura,
+                        "conductividad": payload.mediciones.conductividad,
+                    },
+                    "bateria": payload.bateria,
+                }
+                simulated_data_store.append(doc)
+                # Mantener solo los últimos 300 registros en memoria
+                if len(simulated_data_store) > 300:
+                    simulated_data_store.pop(0)
+                mongo_id = doc["_id"]
             
             # Actualizar estado del dashboard
             update_dashboard_state_from_mongodb()
             
-            logger.info(f"[OK] Datos simulados guardados en MongoDB (ID: {mongo_id})")
+            logger.info(f"[OK] Datos simulados guardados (ID: {mongo_id})")
             
-            # Esperar 10 segundos antes de la siguiente lectura
-            await asyncio.sleep(10)
+            # Esperar 3 segundos antes de la siguiente lectura
+            await asyncio.sleep(3)
         except Exception as e:
             logger.error(f"[ERROR] Error en tarea de datos simulados: {e}")
-            await asyncio.sleep(5)  # Esperar 5 segundos antes de reintentar
+            await asyncio.sleep(2)  # Esperar 2 segundos antes de reintentar
 
 
 @app.on_event("startup")
@@ -724,15 +760,12 @@ async def startup_event():
     global background_task
     logger.info("[START] Aplicacion iniciando...")
     
-    if SIMULATED_DATA_ENABLED and db is not None:
+    if SIMULATED_DATA_ENABLED:
         # Iniciar la tarea de background para generar datos simulados
         background_task = asyncio.create_task(simulated_data_background_task())
         logger.info("[OK] Tarea de datos simulados iniciada")
     else:
-        if db is None:
-            logger.warning("[WARN] MongoDB no disponible, datos simulados desactivados")
-        else:
-            logger.info("[INFO] Datos simulados desactivados (SIMULATED_DATA_ENABLED=False)")
+        logger.info("[INFO] Datos simulados desactivados (SIMULATED_DATA_ENABLED=False)")
 
 
 @app.on_event("shutdown")
@@ -1097,3 +1130,14 @@ def get_mongodb_all_data() -> dict:
             "message": f"Error: {str(e)}",
             "data": []
         }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        reload=False
+    )

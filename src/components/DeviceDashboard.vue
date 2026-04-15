@@ -131,46 +131,49 @@
           <h2 class="section-title">Tabla de Alertas (día actual)</h2>
           <span class="alerts-count">Mostrando {{ visibleAlerts.length }} de {{ todayAlerts.length }}</span>
         </div>
-        <div class="table-wrap">
-          <table class="alerts-table">
-            <thead>
-              <tr>
-                <th>Dispositivo</th>
-                <th>pH</th>
-                <th>Temperatura</th>
-                <th>Conductividad</th>
-                <th>Estado de carga</th>
-                <th>Fecha</th>
-                <th>Hora</th>
-                <th>Telegram</th>
-                <th>Email</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="alert in visibleAlerts" :key="alert.id">
-                <td>{{ alert.deviceName }}</td>
-                <td>{{ alert.ph }}</td>
-                <td>{{ alert.temperature }}</td>
-                <td>{{ alert.conductivity }}</td>
-                <td>{{ alert.battery }}%</td>
-                <td>{{ alert.date }}</td>
-                <td>{{ alert.time }}</td>
-                <td>{{ alert.telegramStatus }}</td>
-                <td>{{ alert.emailStatus }}</td>
-              </tr>
-              <tr v-if="visibleAlerts.length === 0">
-                <td colspan="9" class="empty-cell">Sin alertas registradas para hoy.</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="table-wrapper" :class="{ expanded: showAllTodayAlerts }">
+          <div class="table-wrap">
+            <table class="alerts-table">
+              <thead>
+                <tr>
+                  <th>Dispositivo</th>
+                  <th>pH</th>
+                  <th>Temperatura</th>
+                  <th>Conductividad</th>
+                  <th>Estado de carga</th>
+                  <th>Fecha</th>
+                  <th>Hora</th>
+                  <th>Telegram</th>
+                  <th>Email</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="alert in visibleAlerts" :key="alert.id">
+                  <td>{{ alert.deviceName }}</td>
+                  <td>{{ alert.ph }}</td>
+                  <td>{{ alert.temperature }}</td>
+                  <td>{{ alert.conductivity }}</td>
+                  <td>{{ alert.battery }}%</td>
+                  <td>{{ alert.date }}</td>
+                  <td>{{ alert.time }}</td>
+                  <td>{{ alert.telegramStatus }}</td>
+                  <td>{{ alert.emailStatus }}</td>
+                </tr>
+                <tr v-if="visibleAlerts.length === 0">
+                  <td colspan="9" class="empty-cell">Sin alertas registradas para hoy.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="todayAlerts.length > ALERT_TABLE_LIMIT" class="table-footer">
+            <button
+              class="see-more-btn"
+              @click="showAllTodayAlerts = !showAllTodayAlerts"
+            >
+              {{ showAllTodayAlerts ? 'Ver menos' : 'Mostrar más' }}
+            </button>
+          </div>
         </div>
-        <button
-          v-if="todayAlerts.length > ALERT_TABLE_LIMIT"
-          class="see-more-btn"
-          @click="showAllTodayAlerts = !showAllTodayAlerts"
-        >
-          {{ showAllTodayAlerts ? 'Ver menos' : 'Ver más' }}
-        </button>
       </section>
     </main>
   </div>
@@ -507,7 +510,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const IS_SIMULATED_MODE = import.meta.env.VITE_DATA_MODE === 'simulated' || false
 const DATA_MODE = import.meta.env.VITE_DATA_MODE || 'real'
 
-const ALERT_TABLE_LIMIT = 20
+const ALERT_TABLE_LIMIT = 5
 
 let SENSOR_LIMITS = ref({
   ph: { min: 6.0, max: 8.5, safeMax: 8.0 },
@@ -1070,7 +1073,7 @@ const updateSensorData = async () => {
 const startSensorUpdates = () => {
   if (updateInterval) clearInterval(updateInterval)
   updateSensorData()
-  updateInterval = setInterval(updateSensorData, 5000)
+  updateInterval = setInterval(updateSensorData, 2000)
 }
 
 const stopSensorUpdates = () => {
@@ -1738,7 +1741,30 @@ onUnmounted(() => {
 }
 
 .table-wrap {
+  overflow: auto;
+  transition: max-height 0.3s ease;
+}
+
+.alerts-section:has(.see-more-btn:disabled) .table-wrap,
+.table-wrap:not(:has(~ .table-footer .see-more-btn:not(:disabled))) {
+  max-height: none;
+}
+
+/* Cuando mostrar menos está activo (todas las alertas visibles) */
+.table-wrapper.expanded .table-wrap {
+  max-height: 400px;
+  overflow-y: auto;
   overflow-x: auto;
+}
+
+.table-wrapper {
+  position: relative;
+}
+
+.table-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
 }
 
 .alerts-table {
@@ -1767,7 +1793,7 @@ onUnmounted(() => {
 
 .see-more-btn,
 .pdf-btn {
-  margin-top: 14px;
+  margin-top: 0;
   border: 1px solid #66bb6a;
   background: #ffffff;
   color: #2e7d32;
@@ -1776,15 +1802,14 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.3s ease;
 }
 
 .see-more-btn:hover,
 .pdf-btn:hover {
   background: #e8f5e9;
-}
-
-.pdf-btn {
-  margin-top: 0;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .filters-grid {
