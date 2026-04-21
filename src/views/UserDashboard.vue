@@ -110,6 +110,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { clearSession, stopSessionIdleWatcher, isAdminRole } from '../services/sessionAuth.js'
 
 const router = useRouter()
 
@@ -135,15 +136,13 @@ const sensorStatus = computed(() => {
 })
 
 onMounted(() => {
-  // Simulamos que el usuario logueado es admin o user
-  // En producción, esto vendría de authStore
-  const userRole = localStorage.getItem('userRole') || 'user'
-  isAdmin.value = userRole === 'admin'
+  const userRole = localStorage.getItem('userRole') || ''
+  isAdmin.value = isAdminRole(userRole)
 })
 
 const handleLogout = () => {
-  localStorage.removeItem('isAuthenticated')
-  localStorage.removeItem('userRole')
+  stopSessionIdleWatcher()
+  clearSession()
   router.push('/login')
 }
 

@@ -3,15 +3,26 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from './stores/authStore'
+import { hasValidSessionToken, startSessionIdleWatcher, stopSessionIdleWatcher } from './services/sessionAuth.js'
+import { initTheme } from './services/themePreference.js'
 
 const authStore = useAuthStore()
+const router = useRouter()
 
 onMounted(async () => {
-  // Inicializar autenticación y escuchar cambios
+  initTheme()
   await authStore.initializeAuth()
   authStore.subscribeToAuthChanges()
+  if (hasValidSessionToken()) {
+    startSessionIdleWatcher(router)
+  }
+})
+
+onBeforeUnmount(() => {
+  stopSessionIdleWatcher()
 })
 </script>
 
@@ -24,12 +35,11 @@ onMounted(async () => {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  background: #f5f7fa;
-  color: #333;
+  /* Fondo y color: style.css + theme-dark.css (evita pisar modo oscuro) */
 }
 
 html, body, #app {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
 }
 </style>

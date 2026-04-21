@@ -1,7 +1,18 @@
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const RAW_SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+function normalizeSupabaseUrl(url) {
+  if (!url) return ''
+
+  let normalized = String(url).trim()
+  normalized = normalized.replace(/\/$/, '')
+  normalized = normalized.replace(/\/rest\/v1$/i, '')
+  return normalized
+}
+
+const SUPABASE_URL = normalizeSupabaseUrl(RAW_SUPABASE_URL)
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   console.error('Variables de Supabase no configuradas. Verifica VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en .env')

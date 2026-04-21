@@ -107,6 +107,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { authService } from '../services/supabaseClient'
+import { getAllUsersMerged } from '../services/SupabaseAuthService'
 
 const users = ref([])
 const showAddUserModal = ref(false)
@@ -120,12 +121,13 @@ const newUser = ref({
   role: 'user',
 })
 
-// Cargar usuarios
+// Cargar usuarios (lista unificada: normalizada + consulta cruda)
 const loadUsers = async () => {
   isLoading.value = true
-  const result = await authService.getAllUsers()
-  if (result.success) {
-    users.value = result.data
+  try {
+    users.value = await getAllUsersMerged()
+  } catch (error) {
+    console.error('Error cargando usuarios en AdminUsers:', error)
   }
   isLoading.value = false
 }
@@ -194,12 +196,16 @@ onMounted(() => {
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .users-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 20px;
 }
 
@@ -225,6 +231,9 @@ onMounted(() => {
 
 .users-table {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
 }
 
 table {
@@ -286,6 +295,8 @@ tr:hover {
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(12px, env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
   z-index: 1000;
 }
 
@@ -294,7 +305,10 @@ tr:hover {
   border-radius: 8px;
   width: 100%;
   max-width: 400px;
+  max-height: min(90vh, 100dvh - 32px);
+  overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  min-width: 0;
 }
 
 .modal-header {
@@ -341,7 +355,10 @@ tr:hover {
   padding: 10px;
   border: 1px solid #e0e0e0;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 16px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .form-group input:focus,
@@ -394,5 +411,36 @@ tr:hover {
 
 .submit-btn:hover {
   background: #5568d3;
+}
+
+@media (max-width: 640px) {
+  .admin-users {
+    padding: 14px 12px;
+  }
+
+  .users-header h2 {
+    font-size: 18px;
+  }
+
+  .add-user-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  th,
+  td {
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+  }
+
+  .cancel-btn,
+  .submit-btn {
+    width: 100%;
+    min-height: 44px;
+  }
 }
 </style>

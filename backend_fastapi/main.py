@@ -131,6 +131,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+try:
+    from .auth_jwt import router as auth_jwt_router
+except ImportError:
+    from auth_jwt import router as auth_jwt_router
+
+app.include_router(auth_jwt_router, prefix="/api/auth", tags=["auth"])
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):

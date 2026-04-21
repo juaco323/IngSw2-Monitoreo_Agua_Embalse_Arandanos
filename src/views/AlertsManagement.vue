@@ -122,6 +122,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { clearSession, stopSessionIdleWatcher, isAdminRole } from '../services/sessionAuth.js'
 
 const router = useRouter()
 
@@ -153,11 +154,10 @@ const recentAlerts = ref([
 ])
 
 onMounted(() => {
-  // Verificar autenticación
   const isAuthenticated = localStorage.getItem('isAuthenticated')
   const userRole = localStorage.getItem('userRole')
-  
-  if (!isAuthenticated || userRole !== 'admin') {
+
+  if (!isAuthenticated || !isAdminRole(userRole)) {
     router.push('/dashboard')
   }
 
@@ -196,9 +196,8 @@ const goBack = () => {
 }
 
 const handleLogout = () => {
-  localStorage.removeItem('isAuthenticated')
-  localStorage.removeItem('userEmail')
-  localStorage.removeItem('userRole')
+  stopSessionIdleWatcher()
+  clearSession()
   router.push('/login')
 }
 </script>

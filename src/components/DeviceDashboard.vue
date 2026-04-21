@@ -2,15 +2,18 @@
   <div v-if="currentView === 'devices'" class="devices-view">
     <DeviceList
       :devices-data="devices"
+      :is-admin="isAdmin"
       @select-device="selectDevice"
       @open-history="openHistory"
       @open-user-management="openUserManagementView"
+      @logout="handleLogout"
     />
   </div>
 
   <div v-else-if="currentView === 'dashboard'" class="dashboard">
     <header class="dashboard-header">
       <div class="header-content">
+        <ThemeToggleButton />
         <button class="back-btn" @click="goBack" title="Volver a dispositivos">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
             <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
@@ -34,8 +37,8 @@
           <span v-else-if="selectedDevice.dataSource === 'simulated'">⚙️ Datos Simulados</span>
           <span v-else>❓ Fuente Desconocida</span>
         </div>
-        <button class="history-btn" @click="openHistory" title="Ver datos históricos">📈 Históricos</button>
-        <button class="logout-btn" @click="handleLogout">🚪 Logout</button>
+        <button class="history-btn" type="button" @click="openHistory" title="Ver datos históricos">Históricos</button>
+        <button class="logout-btn" type="button" @click="handleLogout">Cerrar sesión</button>
       </div>
     </header>
 
@@ -182,6 +185,7 @@
   <div v-else-if="currentView === 'admin-alerts'" class="dashboard">
     <header class="dashboard-header">
       <div class="header-content">
+        <ThemeToggleButton />
         <button class="back-btn" @click="goToDashboardView" title="Volver al dashboard">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
             <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
@@ -201,7 +205,7 @@
           <span v-else-if="selectedDevice.dataSource === 'simulated'">⚙️ Datos Simulados</span>
           <span v-else>❓ Fuente Desconocida</span>
         </div>
-        <button class="logout-btn" @click="handleLogout">🚪 Logout</button>
+        <button class="logout-btn" type="button" @click="handleLogout">Cerrar sesión</button>
       </div>
     </header>
 
@@ -270,6 +274,7 @@
   <div v-else-if="currentView === 'admin-users'" class="dashboard">
     <header class="dashboard-header">
       <div class="header-content">
+        <ThemeToggleButton />
         <button class="back-btn" @click="goToDashboardView" title="Volver al dashboard">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
             <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
@@ -289,7 +294,7 @@
           <span v-else-if="selectedDevice.dataSource === 'simulated'">⚙️ Datos Simulados</span>
           <span v-else>❓ Fuente Desconocida</span>
         </div>
-        <button class="logout-btn" @click="handleLogout">🚪 Logout</button>
+        <button class="logout-btn" type="button" @click="handleLogout">Cerrar sesión</button>
       </div>
     </header>
 
@@ -390,6 +395,7 @@
   <div v-else class="history-view">
     <header class="dashboard-header">
       <div class="header-content">
+        <ThemeToggleButton />
         <button class="back-btn" @click="goBack" title="Volver a dispositivos">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
             <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
@@ -499,10 +505,12 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import DeviceList from './DeviceList.vue'
+import ThemeToggleButton from './ThemeToggleButton.vue'
 import SensorCard from './SensorCard.vue'
 import { checkAndSendAlerts } from '../services/AlertService.js'
 import { fetchDashboardData, fetchSensorHistory } from '../services/ArduinoConfig.js'
-import { createUserInSupabase, getAllUsers, deleteUserFromSupabase, saveAlertLimits, getAlertLimitsByAdmin, getCurrentUser } from '../services/SupabaseAuthService.js'
+import { createUserInSupabase, getAllUsersMerged, deleteUserFromSupabase, saveAlertLimits, getAlertLimitsByAdmin, getCurrentUser } from '../services/SupabaseAuthService.js'
+import { clearSession, stopSessionIdleWatcher, hasValidSessionToken } from '../services/sessionAuth.js'
 
 const router = useRouter()
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
@@ -526,8 +534,8 @@ const showAllTodayAlerts = ref(false)
 
 // Detectar si es admin
 const isAdmin = computed(() => {
-  const userRole = localStorage.getItem('userRole')
-  return userRole === 'admin'
+  const userRole = String(localStorage.getItem('userRole') || '').toLowerCase()
+  return userRole === 'admin' || userRole === 'administrador'
 })
 
 // Estado de creación de usuario
@@ -901,9 +909,8 @@ const goBack = () => {
 }
 
 const handleLogout = () => {
-  localStorage.removeItem('isAuthenticated')
-  localStorage.removeItem('userEmail')
-  localStorage.removeItem('userRole')
+  stopSessionIdleWatcher()
+  clearSession()
   router.push('/login')
 }
 
@@ -1010,8 +1017,8 @@ const loadExistingUsers = async () => {
   isLoadingUsers.value = true
   console.log('[loadExistingUsers] Iniciando carga...')
   try {
-    const users = await getAllUsers()
-    console.log('[loadExistingUsers] Respuesta de getAllUsers:', users)
+    const users = await getAllUsersMerged()
+    console.log('[loadExistingUsers] Respuesta de getAllUsersMerged:', users)
     console.log('[loadExistingUsers] Cantidad de usuarios:', users?.length || 0)
     
     // Solo actualizar si realmente hay datos
@@ -1084,9 +1091,7 @@ const stopSensorUpdates = () => {
 }
 
 onMounted(async () => {
-  // Verificar autenticación
-  const isAuthenticated = localStorage.getItem('isAuthenticated')
-  if (!isAuthenticated) {
+  if (!hasValidSessionToken()) {
     router.push('/login')
     return
   }
@@ -1215,36 +1220,35 @@ onUnmounted(() => {
 }
 
 .history-btn {
-  background: #66bb6a;
-  color: white;
-  border: none;
-  padding: 10px 16px;
-  border-radius: 6px;
+  border: 1px solid #66bb6a;
+  background: #ffffff;
+  color: #2e7d32;
+  border-radius: 8px;
+  padding: 10px 14px;
   cursor: pointer;
   font-size: 13px;
-  font-weight: 600;
-  transition: all 0.3s;
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .history-btn:hover {
-  background: #5aa859;
-  box-shadow: 0 2px 8px rgba(102, 187, 106, 0.3);
+  background: #e8f5e9;
 }
 
 .logout-btn {
-  background: #ff6b6b;
-  color: white;
-  border: none;
-  padding: 10px 16px;
-  border-radius: 6px;
+  border: 1px solid #ef9a9a;
+  background: #ffffff;
+  color: #c62828;
+  border-radius: 8px;
+  padding: 10px 14px;
   cursor: pointer;
   font-size: 13px;
-  font-weight: 600;
-  transition: all 0.3s;
+  font-weight: 700;
+  transition: all 0.2s ease;
 }
 
 .logout-btn:hover {
-  background: #ff5252;
+  background: #ffebee;
 }
 
 .back-btn {
@@ -2088,5 +2092,334 @@ onUnmounted(() => {
     padding: 12px;
     font-size: 11px;
   }
+}
+
+/*
+ * Modo oscuro: reglas en este SFC para que Vue añada [data-v-*] y ganen
+ * a theme-dark.css + estilos claros locales (evita títulos claros sobre fondo blanco).
+ */
+html[data-theme='dark'] .dashboard {
+  background: linear-gradient(135deg, #1a1d26 0%, #121520 100%);
+  background-color: #121520;
+  flex: 1 0 auto;
+  width: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+html[data-theme='dark'] .dashboard-header {
+  background: #22252e;
+  border-bottom: 1px solid #343845;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme='dark'] .header-content h1 {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .header-subtitle {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .back-btn {
+  background: #2e3240;
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .back-btn:hover {
+  background: #3d4254;
+  color: #86efac;
+}
+
+html[data-theme='dark'] .admin-nav-btn {
+  background: #262a36;
+  border-color: #fb923c;
+  color: #fed7aa;
+}
+
+html[data-theme='dark'] .admin-nav-btn:hover {
+  background: #431407;
+}
+
+html[data-theme='dark'] .admin-nav-btn.active {
+  background: #ea580c;
+  color: #fff7ed;
+  border-color: #ea580c;
+}
+
+html[data-theme='dark'] .history-btn {
+  background: #262a36;
+  border-color: #4ade80;
+  color: #bbf7d0;
+}
+
+html[data-theme='dark'] .history-btn:hover {
+  background: #1e3a2a;
+}
+
+html[data-theme='dark'] .logout-btn {
+  background: #262a36;
+  border-color: #f87171;
+  color: #fecaca;
+}
+
+html[data-theme='dark'] .logout-btn:hover {
+  background: #3f1d1d;
+}
+
+html[data-theme='dark'] .header-status {
+  background: #2a2d38;
+}
+
+html[data-theme='dark'] .status-label {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .source-real {
+  background-color: #14532d !important;
+  color: #bbf7d0 !important;
+  border-color: #22c55e !important;
+}
+
+html[data-theme='dark'] .source-simulated {
+  background-color: #422006 !important;
+  color: #fed7aa !important;
+  border-color: #f59e0b !important;
+}
+
+html[data-theme='dark'] .source-unknown {
+  background-color: #2e3240 !important;
+  color: #cbd5e1 !important;
+  border-color: #64748b !important;
+}
+
+html[data-theme='dark'] .info-section {
+  background: #262a36;
+  border-color: #3d4254;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme='dark'] .section-title {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .info-card {
+  background: #2e3240;
+  border-left-color: #4b5563;
+}
+
+html[data-theme='dark'] .info-card-label {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .info-card-value {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .info-card-value.connected {
+  color: #86efac;
+}
+
+html[data-theme='dark'] .info-card-value.disconnected {
+  color: #fca5a5;
+}
+
+html[data-theme='dark'] .info-card-value.admin-role {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.35);
+}
+
+html[data-theme='dark'] .info-card-value.user-role {
+  color: #93c5fd;
+  background: rgba(30, 58, 95, 0.45);
+}
+
+html[data-theme='dark'] .diagnostics-section,
+html[data-theme='dark'] .alerts-section,
+html[data-theme='dark'] .filters-section,
+html[data-theme='dark'] .charts-section {
+  background: #262a36;
+  border-color: #3d4254;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme='dark'] .alerts-count {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .diagnostic-card {
+  background: #2e3240;
+  border-color: #3d4254;
+}
+
+html[data-theme='dark'] .diagnostic-title {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .diagnostic-row {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .diagnostic-row strong {
+  color: #f8fafc;
+}
+
+html[data-theme='dark'] .table-wrap {
+  border: 1px solid #3d4254;
+  border-radius: 8px;
+}
+
+html[data-theme='dark'] .alerts-table th {
+  background: #2a2d38;
+  color: #e2e8f0;
+  border-color: #3d4254;
+}
+
+html[data-theme='dark'] .alerts-table td {
+  background: #262a36;
+  color: #e2e8f0;
+  border-color: #3d4254;
+}
+
+html[data-theme='dark'] .alerts-table tbody tr:hover td {
+  background: #2e3240;
+}
+
+html[data-theme='dark'] .empty-cell {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .see-more-btn,
+html[data-theme='dark'] .pdf-btn {
+  background: #262a36;
+  border-color: #4ade80;
+  color: #bbf7d0;
+}
+
+html[data-theme='dark'] .see-more-btn:hover,
+html[data-theme='dark'] .pdf-btn:hover {
+  background: #1e3a2a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme='dark'] .filter-item {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .filter-item select {
+  background: #1a1d26;
+  border-color: #4b5563;
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .chart-card {
+  background: #2e3240;
+  border-color: #3d4254;
+}
+
+html[data-theme='dark'] .chart-card h3 {
+  color: #e2e8f0;
+}
+
+html[data-theme='dark'] .line-chart polyline {
+  stroke: #86efac;
+}
+
+html[data-theme='dark'] .dashboard-footer {
+  background: #1a1d26;
+  border-top-color: #343845;
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .alerts-config-section,
+html[data-theme='dark'] .user-management-section {
+  background: #262a36;
+  border-color: #b45309;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme='dark'] .alert-config-card {
+  background: #2e3240;
+  border-left-color: #fb923c;
+}
+
+html[data-theme='dark'] .alert-config-card h3 {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .config-group label {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .config-group input {
+  background: #1a1d26;
+  border-color: #4b5563;
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .save-config-btn {
+  background: #15803d;
+}
+
+html[data-theme='dark'] .save-config-btn:hover {
+  background: #16a34a;
+}
+
+html[data-theme='dark'] .user-creation-form {
+  background: #2e3240;
+}
+
+html[data-theme='dark'] .user-creation-form h3 {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .form-group label {
+  color: #cbd5e1;
+}
+
+html[data-theme='dark'] .form-group input,
+html[data-theme='dark'] .form-group select {
+  background: #1a1d26;
+  border-color: #4b5563;
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .users-list-header h3 {
+  color: #f1f5f9;
+}
+
+html[data-theme='dark'] .users-table th {
+  background: #2a2d38;
+  color: #e2e8f0;
+  border-color: #3d4254;
+}
+
+html[data-theme='dark'] .users-table td {
+  background: #262a36;
+  color: #e2e8f0;
+  border-color: #3d4254;
+}
+
+html[data-theme='dark'] .role-admin {
+  background: #450a0a;
+  color: #fecaca;
+}
+
+html[data-theme='dark'] .role-employee {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+
+html[data-theme='dark'] .loading-users,
+html[data-theme='dark'] .no-users {
+  color: #94a3b8;
+}
+
+html[data-theme='dark'] .collapse-btn {
+  background: #c2410c;
+}
+
+html[data-theme='dark'] .collapse-btn:hover {
+  background: #ea580c;
 }
 </style>

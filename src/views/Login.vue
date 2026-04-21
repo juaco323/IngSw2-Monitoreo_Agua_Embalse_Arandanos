@@ -1,6 +1,9 @@
 
 <template>
   <div class="login-container">
+    <div class="login-theme-corner">
+      <ThemeToggleButton />
+    </div>
     <div class="login-box">
       <div class="login-header">
         <h1>Monitoreo Embalse</h1>
@@ -44,10 +47,6 @@
         </button>
       </form>
 
-      <div class="login-footer">
-        <p>¿No tienes cuenta? <router-link to="/register">Regístrate aquí</router-link></p>
-      </div>
-
       <div class="demo-info">
         <p><strong>Demostración:</strong></p>
         <p>Admin: admin@test.com / 123456789</p>
@@ -59,6 +58,8 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import ThemeToggleButton from '../components/ThemeToggleButton.vue'
+import { apiLogin, persistSession, startSessionIdleWatcher } from '../services/sessionAuth.js'
 
 const router = useRouter()
 
@@ -78,30 +79,39 @@ const handleLogin = async () => {
     return
   }
 
-  // Demostración: Determinar rol según el email
-  let userRole = 'empleado'
-  if (form.value.email.includes('admin')) {
-    userRole = 'administrador'
+  isLoading.value = true
+  try {
+    const data = await apiLogin(form.value.email.trim(), form.value.password)
+    persistSession(data)
+    startSessionIdleWatcher(router)
+    await router.push('/dashboard')
+  } catch (e) {
+    error.value = e?.message || 'Error al iniciar sesión. Verifica que la API esté en ejecución.'
+  } finally {
+    isLoading.value = false
   }
-
-  // Guardar información de autenticación en localStorage
-  localStorage.setItem('isAuthenticated', 'true')
-  localStorage.setItem('userEmail', form.value.email)
-  localStorage.setItem('userRole', userRole)
-
-  // Redirigir al dashboard
-  router.push('/dashboard')
 }
 </script>
 
 <style scoped>
 .login-container {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
   background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+.login-theme-corner {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  left: max(12px, env(safe-area-inset-left, 0px));
+  z-index: 2;
 }
 
 .login-box {
@@ -154,7 +164,10 @@ const handleLogin = async () => {
   padding: 12px;
   border: 1px solid #e8e8e8;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 16px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   transition: border-color 0.3s, box-shadow 0.3s;
   background-color: #ffffff;
   color: #333333;
@@ -236,5 +249,21 @@ const handleLogin = async () => {
 
 .demo-info strong {
   color: #333333;
+}
+
+@media (max-width: 480px) {
+  .login-box {
+    padding: 24px 20px;
+    border-radius: 10px;
+  }
+
+  .login-header h1 {
+    font-size: 22px;
+  }
+
+  .login-btn {
+    min-height: 48px;
+    font-size: 15px;
+  }
 }
 </style>

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { supabase } from './supabaseClient'
+import { supabase, authService } from './supabaseClient'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -120,62 +120,133 @@ export async function createUserInSupabase(email, password, fullName, role) {
 export async function getAllUsers() {
   try {
     console.log('[getAllUsers] Iniciando carga de usuarios desde Supabase...')
-    
-    // Intento 1: Consulta específica con columnas
-    console.log('[getAllUsers] Intento 1: Consultando con columnas específicas...')
-    let { data, error, status } = await supabase
-      .from('users_roles')
-      .select('*')
-      .order('created_at', { ascending: false })
 
-    console.log('[getAllUsers] Status HTTP:', status)
-    console.log('[getAllUsers] Error:', error)
-    console.log('[getAllUsers] Data:', data)
-    
-    if (error) {
-      console.error('[getAllUsers] Error en consulta 1:', error.message)
+    const normalizeUsers = (rows) => {
+      if (!Array.isArray(rows)) return []
+
+      return rows
+        .map((row) => {
+          const pk = row.id ?? row.user_id ?? row.uid ?? null
+          const resolvedRole = String(row.role || 'user').toLowerCase()
+          return {
+            ...row,
+            id: pk,
+            email: row.email || row.user_email || 'sin-correo',
+            full_name: row.full_name || row.name || row.nombre || 'N/A',
+            role:
+              resolvedRole === 'user'
+                ? 'user'
+                : resolvedRole === 'employee' || resolvedRole === 'empleado'
+                  ? 'employee'
+                  : resolvedRole === 'admin' || resolvedRole === 'administrador'
+                    ? 'admin'
+                    : 'user',
+            created_at: row.created_at || row.inserted_at || row.updated_at || new Date().toISOString(),
+          }
+        })
+        .filter((user) => !!user.id)
     }
 
-    // Si la consulta falla o retorna vacío, intentar sin ordenamiento
-    if (error || !data || data.length === 0) {
-      console.log('[getAllUsers] Intento 2: Consultando sin ordenamiento...')
-      const { data: data2, error: error2 } = await supabase
-        .from('users_roles')
-        .select('*')
+    const attempts = [
+      async () => {
+        const { data, error } = await supabase
+          .from('users_roles')
+          .select('*')
+          .order('created_at', { ascending: false, nullsFirst: false })
+        return { data, error, source: 'users_roles:ordered' }
+      },
+      async () => {
+        const { data, error } = await supabase
+          .from('users_roles')
+          .select('*')
+        return { data, error, source: 'users_roles:raw' }
+      },
+      async () => {
+        const { data, error } = await supabase
+          .from('users_roles')
+          .select('user_id, email, full_name, role, created_at')
+        return { data, error, source: 'users_roles:user_id' }
+      },
+    ]
 
-      console.log('[getAllUsers] Intento 2 - Error:', error2)
-      console.log('[getAllUsers] Intento 2 - Data:', data2)
+    for (const runAttempt of attempts) {
+      const { data, error, source } = await runAttempt()
 
-      if (data2 && data2.length > 0) {
-        data = data2
-        error = null
-      } else if (error2) {
-        error = error2
+      if (error) {
+        console.warn(`[getAllUsers] ${source} devolvió error:`, error.message)
+        continue
+      }
+
+      const rawCount = Array.isArray(data) ? data.length : 0
+      const normalized = normalizeUsers(data)
+      if (rawCount > 0 && normalized.length < rawCount) {
+        console.warn(
+          `[getAllUsers] ${source}: ${rawCount - normalized.length} fila(s) sin id/user_id válido (revisa el registro en Supabase).`
+        )
+      }
+      if (normalized.length > 0) {
+        console.log(`[getAllUsers] ✅ Usuarios obtenidos desde ${source}. Total:`, normalized.length)
+        return normalized
       }
     }
 
-    if (error) {
-      console.error('[getAllUsers] ❌ Error de Supabase:', error)
-      console.error('[getAllUsers] Código:', error.code)
-      console.error('[getAllUsers] Mensaje:', error.message)
-      return []
+    // Fallback opcional si se está usando Service Role Key por configuración local.
+    if (supabase?.auth?.admin?.listUsers) {
+      try {
+        const { data: authUsersData, error: authUsersError } = await supabase.auth.admin.listUsers()
+        if (!authUsersError && Array.isArray(authUsersData?.users) && authUsersData.users.length > 0) {
+          const normalizedAuthUsers = authUsersData.users.map((user) => ({
+            id: user.id,
+            email: user.email || 'sin-correo',
+            full_name: user.user_metadata?.full_name || user.email || 'N/A',
+            role: String(user.user_metadata?.role || 'employee').toLowerCase() === 'admin' ? 'admin' : 'employee',
+            created_at: user.created_at || new Date().toISOString(),
+          }))
+
+          console.log('[getAllUsers] ✅ Usuarios obtenidos desde auth.admin.listUsers. Total:', normalizedAuthUsers.length)
+          return normalizedAuthUsers
+        }
+      } catch (authAdminError) {
+        console.warn('[getAllUsers] Fallback auth.admin.listUsers no disponible:', authAdminError.message)
+      }
     }
 
-    console.log('[getAllUsers] ✅ Usuarios obtenidos correctamente')
-    console.log('[getAllUsers] Total de usuarios:', data?.length || 0)
-    
-    if (data && data.length > 0) {
-      console.log('[getAllUsers] Usuarios encontrados:', data.map(u => ({ email: u.email, role: u.role })))
-      return data
-    } else {
-      console.warn('[getAllUsers] ⚠️ No hay usuarios en la BD')
-      return []
-    }
+    console.warn('[getAllUsers] ⚠️ No fue posible obtener usuarios con las consultas disponibles.')
+    return []
   } catch (error) {
     console.error('[getAllUsers] ❌ Excepción:', error.message)
     console.error('[getAllUsers] Stack:', error.stack)
     return []
   }
+}
+
+function mergeUsersById(primary, secondary) {
+  const byId = new Map()
+  const add = (row) => {
+    if (!row) return
+    const id = row.id ?? row.user_id
+    if (!id) return
+    const prev = byId.get(id)
+    byId.set(id, prev ? { ...prev, ...row, id } : { ...row, id })
+  }
+  ;(primary || []).forEach(add)
+  ;(secondary || []).forEach(add)
+  return Array.from(byId.values()).sort((a, b) => {
+    const ta = new Date(a.created_at || 0).getTime()
+    const tb = new Date(b.created_at || 0).getTime()
+    return tb - ta
+  })
+}
+
+/**
+ * Lista unificada para pantallas de administración: combina getAllUsers normalizado
+ * con la consulta cruda por si alguna fila queda fuera tras normalizar.
+ */
+export async function getAllUsersMerged() {
+  const [robust, legacyResult] = await Promise.all([getAllUsers(), authService.getAllUsers()])
+  const legacyList =
+    legacyResult.success && Array.isArray(legacyResult.data) ? legacyResult.data : []
+  return mergeUsersById(robust, legacyList)
 }
 
 /**
@@ -490,6 +561,7 @@ export async function deleteAlertLimit(id) {
 export default {
   createUserInSupabase,
   getAllUsers,
+  getAllUsersMerged,
   getUserById,
   updateUserRole,
   deleteUserFromSupabase,

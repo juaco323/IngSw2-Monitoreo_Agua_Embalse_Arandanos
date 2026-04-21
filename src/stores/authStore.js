@@ -48,25 +48,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // Signup
-  async function signup(email, password, fullName) {
-    isLoading.value = true
-    error.value = null
-    try {
-      const result = await authService.signup(email, password, fullName)
-      if (result.success) {
-        user.value = result.data.user
-        userRole.value = 'user'
-        return { success: true }
-      } else {
-        error.value = result.error
-        return { success: false, error: result.error }
-      }
-    } finally {
-      isLoading.value = false
-    }
-  }
-
   // Logout
   async function logout() {
     isLoading.value = true
@@ -112,7 +93,6 @@ export const useAuthStore = defineStore('auth', () => {
     // Actions
     initializeAuth,
     login,
-    signup,
     logout,
     subscribeToAuthChanges,
   }
