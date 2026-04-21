@@ -392,12 +392,26 @@ export async function getCurrentUser() {
     if (!data.user) return null
 
     // Obtener detalles adicionales de users_roles
-    const userRole = await getUserById(data.user.id)
+    let userRole = null
+    try {
+      userRole = await getUserById(data.user.id)
+    } catch (roleError) {
+      console.warn('No se pudo obtener el rol del usuario de Supabase, usando localStorage:', roleError)
+      // Usar localStorage como fallback
+      userRole = {
+        id: data.user.id,
+        role: localStorage.getItem('userRole') || 'employee',
+        full_name: localStorage.getItem('userFullName') || data.user.email
+      }
+    }
 
     return {
       id: data.user.id,
       email: data.user.email,
-      ...userRole
+      ...(userRole || {
+        role: localStorage.getItem('userRole') || 'employee',
+        full_name: localStorage.getItem('userFullName') || data.user.email
+      })
     }
   } catch (error) {
     console.error('Exception in getCurrentUser:', error)

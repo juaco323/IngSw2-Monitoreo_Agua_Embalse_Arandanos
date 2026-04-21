@@ -220,15 +220,15 @@
             <h3>🔬 pH</h3>
             <div class="config-group">
               <label>Minimo:</label>
-              <input v-model.number="SENSOR_LIMITS.ph.min" type="number" step="0.1" />
+              <input v-model.number="editingLimits.ph.min" type="number" step="0.1" />
             </div>
             <div class="config-group">
               <label>Maximo:</label>
-              <input v-model.number="SENSOR_LIMITS.ph.max" type="number" step="0.1" />
+              <input v-model.number="editingLimits.ph.max" type="number" step="0.1" />
             </div>
             <div class="config-group">
               <label>Maximo seguro:</label>
-              <input v-model.number="SENSOR_LIMITS.ph.safeMax" type="number" step="0.1" />
+              <input v-model.number="editingLimits.ph.safeMax" type="number" step="0.1" />
             </div>
             <button class="save-config-btn" @click="saveAlertConfig('ph')">Guardar pH</button>
           </div>
@@ -237,15 +237,15 @@
             <h3>🌡️ Temperatura (°C)</h3>
             <div class="config-group">
               <label>Minimo:</label>
-              <input v-model.number="SENSOR_LIMITS.temperature.min" type="number" step="1" />
+              <input v-model.number="editingLimits.temperature.min" type="number" step="1" />
             </div>
             <div class="config-group">
               <label>Maximo:</label>
-              <input v-model.number="SENSOR_LIMITS.temperature.max" type="number" step="1" />
+              <input v-model.number="editingLimits.temperature.max" type="number" step="1" />
             </div>
             <div class="config-group">
               <label>Maximo seguro:</label>
-              <input v-model.number="SENSOR_LIMITS.temperature.safeMax" type="number" step="1" />
+              <input v-model.number="editingLimits.temperature.safeMax" type="number" step="1" />
             </div>
             <button class="save-config-btn" @click="saveAlertConfig('temperature')">Guardar temperatura</button>
           </div>
@@ -254,15 +254,15 @@
             <h3>⚡ Conductividad (µS/cm)</h3>
             <div class="config-group">
               <label>Minimo:</label>
-              <input v-model.number="SENSOR_LIMITS.conductivity.min" type="number" step="10" />
+              <input v-model.number="editingLimits.conductivity.min" type="number" step="10" />
             </div>
             <div class="config-group">
               <label>Maximo:</label>
-              <input v-model.number="SENSOR_LIMITS.conductivity.max" type="number" step="10" />
+              <input v-model.number="editingLimits.conductivity.max" type="number" step="10" />
             </div>
             <div class="config-group">
               <label>Maximo seguro:</label>
-              <input v-model.number="SENSOR_LIMITS.conductivity.safeMax" type="number" step="10" />
+              <input v-model.number="editingLimits.conductivity.safeMax" type="number" step="10" />
             </div>
             <button class="save-config-btn" @click="saveAlertConfig('conductivity')">Guardar conductividad</button>
           </div>
@@ -502,7 +502,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import DeviceList from './DeviceList.vue'
 import ThemeToggleButton from './ThemeToggleButton.vue'
@@ -522,6 +522,17 @@ const DATA_MODE = import.meta.env.VITE_DATA_MODE || 'real'
 const ALERT_TABLE_LIMIT = 5
 
 let SENSOR_LIMITS = ref({
+  ph: { min: 6.0, max: 8.5, safeMax: 8.0 },
+  temperature: { min: 5, max: 35, safeMax: 28 },
+  conductivity: { min: 100, max: 2000, safeMax: 1500 }
+})
+
+// Estado para prevenir guardado automático - solo se guarda cuando usuario hace click en botón
+let lastSavedLimits = { ...SENSOR_LIMITS.value }
+const hasUnsavedChanges = ref(false)
+
+// Estado para edición temporal - los cambios NO afectan los gráficos hasta guardar
+let editingLimits = ref({
   ph: { min: 6.0, max: 8.5, safeMax: 8.0 },
   temperature: { min: 5, max: 35, safeMax: 28 },
   conductivity: { min: 100, max: 2000, safeMax: 1500 }
@@ -891,6 +902,9 @@ const openHistory = () => {
 
 const openAlertConfigView = () => {
   if (!isAdmin.value) return
+  // Copiar valores actuales a editingLimits para que los cambios no afecten los gráficos hasta guardar
+  editingLimits.value = JSON.parse(JSON.stringify(SENSOR_LIMITS.value))
+  console.log('[DEBUG] editingLimits cargado con valores guardados:', editingLimits.value)
   currentView.value = 'admin-alerts'
 }
 
@@ -905,6 +919,11 @@ const goToDashboardView = () => {
 }
 
 const goBack = () => {
+  // Descartar cambios sin guardar cuando se regresa de la vista de configuración
+  if (currentView.value === 'admin-alerts') {
+    editingLimits.value = JSON.parse(JSON.stringify(SENSOR_LIMITS.value))
+    console.log('[DEBUG] Cambios descartados, editingLimits restaurado a valores guardados')
+  }
   currentView.value = 'devices'
 }
 
@@ -918,32 +937,40 @@ const saveAlertConfig = async (sensorType) => {
   try {
     isCreatingUser.value = true
     
-    // Obtener usuario actual
-    const currentUser = await getCurrentUser()
-    if (!currentUser || currentUser.role !== 'admin') {
-      alert('Debes ser administrador para guardar configuraciones de alertas')
+    console.log('[DEBUG] Iniciando guardado de configuración de alertas para:', sensorType)
+    
+    // Verificar permisos de admin
+    const userRole = String(localStorage.getItem('userRole') || '').toLowerCase()
+    const isAdminUser = userRole === 'admin' || userRole === 'administrador'
+
+    console.log('[DEBUG] Rol del usuario:', userRole, '| Es admin:', isAdminUser)
+
+    if (!isAdminUser) {
+      alert('⚠️ Debes ser administrador para guardar configuraciones de alertas')
       return
     }
 
-    // Guardar en localStorage
+    // Validar que los valores sean sensatos
+    const limits = editingLimits.value[sensorType]
+    if (limits.min >= limits.max) {
+      alert(`❌ Error: El valor mínimo debe ser menor al máximo para ${sensorType}`)
+      return
+    }
+
+    // Copiar valores de editingLimits a SENSOR_LIMITS (aplicar cambios)
+    SENSOR_LIMITS.value[sensorType] = JSON.parse(JSON.stringify(limits))
+    console.log('[DEBUG] Valores copiados a SENSOR_LIMITS:', SENSOR_LIMITS.value[sensorType])
+
+    // Guardar en localStorage (método principal)
     const config = { ...SENSOR_LIMITS.value }
     localStorage.setItem('sensorLimits', JSON.stringify(config))
+    console.log('[DEBUG] ✅ Configuración guardada en localStorage:', config)
 
-    // Guardar en Supabase
-    const sensorLimits = SENSOR_LIMITS.value[sensorType]
-    const result = await saveAlertLimits(
-      currentUser.id,
-      sensorType,
-      sensorLimits.min,
-      sensorLimits.max,
-      sensorLimits.safeMax
-    )
-
-    if (result.success) {
-      alert(`✅ Límites de ${sensorType} guardados exitosamente en Supabase`)
-    } else {
-      alert(`⚠️ Error al guardar en Supabase: ${result.error}. Los datos se guardaron localmente.`)
-    }
+    // Limpiar el estado de cambios sin guardar
+    hasUnsavedChanges.value = false
+    lastSavedLimits = JSON.parse(JSON.stringify(SENSOR_LIMITS.value))
+    
+    alert(`✅ Límites de ${sensorType} guardados exitosamente`)
   } catch (error) {
     console.error('Error en saveAlertConfig:', error)
     alert(`Error: ${error.message}`)
@@ -1089,6 +1116,16 @@ const stopSensorUpdates = () => {
     updateInterval = null
   }
 }
+
+// Watcher para detectar cambios pero NO guardar automáticamente
+watch(() => SENSOR_LIMITS.value, 
+  () => {
+    hasUnsavedChanges.value = true
+    // NO guardamos automáticamente en localStorage
+    console.log('Cambios detectados en SENSOR_LIMITS - requiere hacer click en guardar')
+  },
+  { deep: true }
+)
 
 onMounted(async () => {
   if (!hasValidSessionToken()) {

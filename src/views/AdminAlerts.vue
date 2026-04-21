@@ -182,7 +182,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { authService } from '../services/supabaseClient'
 
 const users = ref([])
@@ -190,6 +190,9 @@ const selectedUserId = ref('')
 const selectedUserAlerts = ref(null)
 const alertSuccess = ref(false)
 const userAlertSuccess = ref(false)
+
+// Estado para guardar límites globales en localStorage
+const GLOBAL_LIMITS_KEY = 'globalAlertLimits'
 
 const globalAlerts = ref({
   ph_min: 6.5,
@@ -232,13 +235,39 @@ const loadUserAlerts = async () => {
 
 // Guardar alertas globales
 const handleSaveAlerts = async () => {
-  alertSuccess.value = false
-  // En una aplicación real, esto guardaría en la base de datos
-  // Por ahora solo mostramos un mensaje de éxito
-  alertSuccess.value = true
-  setTimeout(() => {
+  try {
     alertSuccess.value = false
-  }, 3000)
+    
+    // Validar que los valores sean válidos
+    if (globalAlerts.value.ph_min >= globalAlerts.value.ph_max) {
+      alert('❌ Error: El pH mínimo debe ser menor al pH máximo')
+      return
+    }
+    if (globalAlerts.value.temp_min >= globalAlerts.value.temp_max) {
+      alert('❌ Error: La temperatura mínima debe ser menor a la máxima')
+      return
+    }
+
+    // Guardar en localStorage como límites globales predeterminados
+    const limitsToSave = {
+      ...globalAlerts.value,
+      savedAt: new Date().toISOString(),
+      updatedBy: 'admin'
+    }
+    localStorage.setItem(GLOBAL_LIMITS_KEY, JSON.stringify(limitsToSave))
+
+    // Mostrar confirmación de éxito
+    alertSuccess.value = true
+    
+    console.log('✅ Límites globales guardados en localStorage:', limitsToSave)
+    
+    setTimeout(() => {
+      alertSuccess.value = false
+    }, 3000)
+  } catch (error) {
+    console.error('Error al guardar alertas globales:', error)
+    alert(`❌ Error al guardar: ${error.message}`)
+  }
 }
 
 // Guardar alertas del usuario
@@ -270,8 +299,38 @@ const handleResetToDefault = () => {
   }
 }
 
+// Cargar límites globales guardados al montar el componente
+const loadGlobalLimits = () => {
+  try {
+    const saved = localStorage.getItem(GLOBAL_LIMITS_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      // No cargar el timestamp ni metadata
+      const { savedAt, updatedBy, ...limits } = parsed
+      globalAlerts.value = limits
+    }
+  } catch (error) {
+    console.error('Error al cargar límites globales:', error)
+  }
+}
+
+// Watcher para DETECTAR cambios pero NO guardar automáticamente
+// Los cambios solo se guardan cuando el usuario hace click en "Guardar Configuración"
+let initialGlobalAlerts = JSON.stringify(defaultAlerts)
+watch(() => globalAlerts.value, 
+  (newValue) => {
+    const current = JSON.stringify(newValue)
+    if (current !== initialGlobalAlerts) {
+      console.log('⚠️ Cambios detectados en límites globales - requiere hacer click en "Guardar Configuración"')
+    }
+  },
+  { deep: true }
+)
+
 onMounted(() => {
   loadUsers()
+  loadGlobalLimits()
+  initialGlobalAlerts = JSON.stringify(globalAlerts.value)
 })
 </script>
 
