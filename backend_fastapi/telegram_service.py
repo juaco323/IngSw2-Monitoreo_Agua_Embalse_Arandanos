@@ -154,7 +154,10 @@ class TelegramService:
             logger.info("[TELEGRAM] Iniciando polling del bot de Telegram...")
             await cls.application.initialize()
             await cls.application.start()
-            await cls.application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            await cls.application.updater.start_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+            )
             logger.info("[TELEGRAM] Polling de Telegram iniciado")
         except Exception as e:
             logger.error(f"[TELEGRAM] Error en polling: {e}")
