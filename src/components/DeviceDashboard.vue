@@ -16,7 +16,7 @@
         <ThemeToggleButton />
         <button class="back-btn" @click="goBack" title="Volver a dispositivos">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
           </svg>
         </button>
         <div>
@@ -69,86 +69,93 @@
         </div>
       </section>
 
+      <section v-if="waterSituationMessage" class="water-situation-section">
+        <div class="water-situation-banner" :class="`banner-${overallStatus}`">
+          {{ waterSituationMessage }}
+        </div>
+      </section>
+
       <div class="sensors-grid" v-if="sensors && selectedDevice.id">
         <SensorCard
           v-if="sensors.ph"
           sensor-name="pH"
+          sensor-type="ph"
           :value="sensors.ph.value"
-          :min="SENSOR_LIMITS.value?.ph?.safe_min || 0"
-          :max="SENSOR_LIMITS.value?.ph?.safe_max || 14"
-          :safe-max="SENSOR_LIMITS.value?.ph?.safe_max || 14"
+          :min="SENSOR_LIMITS?.ph?.base_min ?? 0"
+          :max="SENSOR_LIMITS?.ph?.base_max ?? 8.5"
+          :thresholds="getThresholdsFromLimits(SENSOR_LIMITS?.ph)"
           unit="pH"
           :last-updated="lastSync"
         />
         <SensorCard
           v-if="sensors.temperature"
           sensor-name="Temperatura"
+          sensor-type="temperature"
           :value="sensors.temperature.value"
-          :min="SENSOR_LIMITS.value?.temperature?.safe_min || 0"
-          :max="SENSOR_LIMITS.value?.temperature?.safe_max || 50"
-          :safe-max="SENSOR_LIMITS.value?.temperature?.safe_max || 50"
+          :min="SENSOR_LIMITS?.temperature?.base_min ?? 0"
+          :max="SENSOR_LIMITS?.temperature?.base_max ?? 30"
+          :thresholds="getThresholdsFromLimits(SENSOR_LIMITS?.temperature)"
           unit="°C"
           :last-updated="lastSync"
         />
         <SensorCard
           v-if="sensors.conductivity"
           sensor-name="Conductividad Eléctrica"
+          sensor-type="conductivity"
           :value="sensors.conductivity.value"
-          :min="SENSOR_LIMITS.value?.conductivity?.safe_min || 0"
-          :max="SENSOR_LIMITS.value?.conductivity?.safe_max || 5000"
-          :safe-max="SENSOR_LIMITS.value?.conductivity?.safe_max || 5000"
+          :min="SENSOR_LIMITS?.conductivity?.base_min ?? 0"
+          :max="SENSOR_LIMITS?.conductivity?.base_max ?? 2000"
+          :thresholds="getThresholdsFromLimits(SENSOR_LIMITS?.conductivity)"
           unit="µS/cm"
           :last-updated="lastSync"
         />
       </div>
 
       <section class="alerts-section">
-        <div class="alerts-header">
-          <h2 class="section-title">Tabla de Alertas (día actual)</h2>
-          <span class="alerts-count">Mostrando {{ visibleAlerts.length }} de {{ todayAlerts.length }}</span>
+        <div class="alerts-container">
+          <div class="alerts-header">
+            <h2>Tabla de Alertas (día actual)</h2>
+            <div class="alerts-counter">Mostrando {{ visibleAlerts.length }} de {{ todayAlerts.length }}</div>
+          </div>
+          <table class="alerts-table">
+            <thead>
+              <tr>
+                <th>Dispositivo</th>
+                <th>pH</th>
+                <th>Temperatura</th>
+                <th>Conductividad</th>
+                <th>Estado de carga</th>
+                <th>Fecha</th>
+                <th>Hora</th>
+                <th>Telegram</th>
+                <th>Email</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="alert in visibleAlerts" :key="`${alert.timestamp}-${alert.index}`">
+                <td>{{ alert.device }}</td>
+                <td>{{ alert.ph }}</td>
+                <td>{{ alert.temperature }}</td>
+                <td>{{ alert.conductivity }}</td>
+                <td>{{ alert.battery }}</td>
+                <td>{{ alert.date }}</td>
+                <td>{{ alert.time }}</td>
+                <td>{{ alert.telegramStatus }}</td>
+                <td>{{ alert.emailStatus }}</td>
+              </tr>
+              <tr v-if="visibleAlerts.length === 0">
+                <td colspan="9" class="empty-cell">Sin alertas registradas para hoy.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="table-wrapper" :class="{ expanded: showAllTodayAlerts }">
-          <div class="table-wrap">
-            <table class="alerts-table">
-              <thead>
-                <tr>
-                  <th>Dispositivo</th>
-                  <th>pH</th>
-                  <th>Temperatura</th>
-                  <th>Conductividad</th>
-                  <th>Estado de carga</th>
-                  <th>Fecha</th>
-                  <th>Hora</th>
-                  <th>Telegram</th>
-                  <th>Email</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="alert in visibleAlerts" :key="alert.id">
-                  <td>{{ alert.deviceName }}</td>
-                  <td>{{ alert.ph }}</td>
-                  <td>{{ alert.temperature }}</td>
-                  <td>{{ alert.conductivity }}</td>
-                  <td>{{ alert.battery }}%</td>
-                  <td>{{ alert.date }}</td>
-                  <td>{{ alert.time }}</td>
-                  <td>{{ alert.telegramStatus }}</td>
-                  <td>{{ alert.emailStatus }}</td>
-                </tr>
-                <tr v-if="visibleAlerts.length === 0">
-                  <td colspan="9" class="empty-cell">Sin alertas registradas para hoy.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div v-if="todayAlerts.length > ALERT_TABLE_LIMIT" class="table-footer">
-            <button
-              class="see-more-btn"
-              @click="showAllTodayAlerts = !showAllTodayAlerts"
-            >
-              {{ showAllTodayAlerts ? 'Ver menos' : 'Mostrar más' }}
-            </button>
-          </div>
+        <div v-if="todayAlerts.length > ALERT_TABLE_LIMIT" class="table-footer">
+          <button
+            class="see-more-btn"
+            @click="showAllTodayAlerts = !showAllTodayAlerts"
+          >
+            {{ showAllTodayAlerts ? 'Ver menos' : 'Mostrar más' }}
+          </button>
         </div>
       </section>
     </main>
@@ -664,6 +671,7 @@ import { checkAndSendAlerts } from '../services/AlertService.js'
 import { fetchDashboardData, fetchSensorHistory } from '../services/ArduinoConfig.js'
 import { createUserInSupabase, getAllUsersMerged, deleteUserFromSupabase } from '../services/SupabaseAuthService.js'
 import { clearSession, stopSessionIdleWatcher, hasValidSessionToken } from '../services/sessionAuth.js'
+import { loadSensorLimitsFromStorage, syncSensorLimitsFromStorage } from '../utils/loadSensorLimits.js'
 
 const router = useRouter()
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
@@ -675,9 +683,33 @@ const DATA_MODE = import.meta.env.VITE_DATA_MODE || 'real'
 const ALERT_TABLE_LIMIT = 5
 
 let SENSOR_LIMITS = ref({
-  ph: { base_min: 0, midpoint: 4.25, base_max: 8.5, danger_min: 0, danger_max: 5.5, warning_min: 5.5, warning_max: 6.5, safe_min: 6.5, safe_max: 8.5 },
-  temperature: { base_min: 0, midpoint: 15, base_max: 30, danger_min: 0, danger_max: 10, warning_min: 10, warning_max: 15, safe_min: 15, safe_max: 30 },
-  conductivity: { base_min: 0, midpoint: 1000, base_max: 2000, danger_min: 0, danger_max: 100, warning_min: 100, warning_max: 500, safe_min: 500, safe_max: 2000 }
+  ph: {
+    base_min: 0,
+    midpoint: 4.25,
+    base_max: 8.5,
+    safe_min: 2.125,
+    safe_max: 6.375,
+    danger_ranges: [{ min: 0, max: 0.85 }, { min: 7.65, max: 8.5 }],
+    warning_ranges: [{ min: 0.85, max: 2.125 }, { min: 6.375, max: 7.65 }]
+  },
+  temperature: {
+    base_min: 0,
+    midpoint: 15,
+    base_max: 30,
+    safe_min: 7.5,
+    safe_max: 22.5,
+    danger_ranges: [{ min: 0, max: 3 }, { min: 27, max: 30 }],
+    warning_ranges: [{ min: 3, max: 7.5 }, { min: 22.5, max: 27 }]
+  },
+  conductivity: {
+    base_min: 0,
+    midpoint: 1000,
+    base_max: 2000,
+    safe_min: 500,
+    safe_max: 1500,
+    danger_ranges: [{ min: 0, max: 200 }, { min: 1800, max: 2000 }],
+    warning_ranges: [{ min: 200, max: 500 }, { min: 1500, max: 1800 }]
+  }
 })
 
 // Estado para prevenir guardado automático - solo se guarda cuando usuario hace click en botón
@@ -691,36 +723,36 @@ let editingLimits = ref({
     midpoint: 4.25,
     base_max: 8.5,
     // derived (lower side)
-    lower_danger_max: 5.5,
-    lower_warning_max: 6.5,
+    lower_danger_max: 0.85,
+    lower_warning_max: 2.125,
     // safe span
-    safe_min: 6.5,
-    safe_max: 6.5,
+    safe_min: 2.125,
+    safe_max: 6.375,
     // derived (upper side)
-    upper_warning_min: 6.5,
-    upper_danger_min: 6.5
+    upper_warning_min: 6.375,
+    upper_danger_min: 7.65
   },
   temperature: {
     base_min: 0,
     midpoint: 15,
     base_max: 30,
-    lower_danger_max: 10,
-    lower_warning_max: 15,
-    safe_min: 15,
-    safe_max: 15,
-    upper_warning_min: 15,
-    upper_danger_min: 15
+    lower_danger_max: 3,
+    lower_warning_max: 7.5,
+    safe_min: 7.5,
+    safe_max: 22.5,
+    upper_warning_min: 22.5,
+    upper_danger_min: 27
   },
   conductivity: {
     base_min: 0,
     midpoint: 1000,
     base_max: 2000,
-    lower_danger_max: 100,
+    lower_danger_max: 200,
     lower_warning_max: 500,
     safe_min: 500,
-    safe_max: 500,
-    upper_warning_min: 500,
-    upper_danger_min: 500
+    safe_max: 1500,
+    upper_warning_min: 1500,
+    upper_danger_min: 1800
   }
 })
 
@@ -801,14 +833,27 @@ const getStatus = (value, min, max) => {
   return 'safe'
 }
 
+const getSensorStateByThresholds = (sensorKey, value) => {
+  const limits = SENSOR_LIMITS.value?.[sensorKey]
+  const thresholds = getThresholdsFromLimits(limits)
+  const min = limits?.base_min ?? 0
+  const max = limits?.base_max ?? 1
+  const safeValue = Math.min(max, Math.max(min, Number(value) || 0))
+
+  if (!thresholds) return 'safe'
+  if (safeValue <= thresholds.dangerLow || safeValue >= thresholds.dangerHigh) return 'danger'
+  if (safeValue <= thresholds.warningLow || safeValue >= thresholds.warningHigh) return 'warning'
+  return 'safe'
+}
+
 const overallStatus = computed(() => {
-  if (!sensors.value?.ph?.value || !SENSOR_LIMITS.value?.ph) {
+  if (!SENSOR_LIMITS.value?.ph) {
     return 'safe'
   }
   const statuses = [
-    getStatus(sensors.value.ph.value, SENSOR_LIMITS.value.ph.safe_min || 0, SENSOR_LIMITS.value.ph.safe_max || 14),
-    getStatus(sensors.value.temperature.value, SENSOR_LIMITS.value.temperature.safe_min || 0, SENSOR_LIMITS.value.temperature.safe_max || 50),
-    getStatus(sensors.value.conductivity.value, SENSOR_LIMITS.value.conductivity.safe_min || 0, SENSOR_LIMITS.value.conductivity.safe_max || 5000)
+    getSensorStateByThresholds('ph', sensors.value?.ph?.value),
+    getSensorStateByThresholds('temperature', sensors.value?.temperature?.value),
+    getSensorStateByThresholds('conductivity', sensors.value?.conductivity?.value)
   ]
   if (statuses.includes('danger')) return 'danger'
   if (statuses.includes('warning')) return 'warning'
@@ -819,6 +864,19 @@ const overallStatusText = computed(() => {
   if (overallStatus.value === 'danger') return 'Situación Peligrosa'
   if (overallStatus.value === 'warning') return 'Advertencia'
   return 'Sistema Normal'
+})
+
+const abnormalSensors = computed(() => {
+  const names = []
+  if (getSensorStateByThresholds('ph', sensors.value?.ph?.value) !== 'safe') names.push('PH')
+  if (getSensorStateByThresholds('temperature', sensors.value?.temperature?.value) !== 'safe') names.push('TEMPERATURA')
+  if (getSensorStateByThresholds('conductivity', sensors.value?.conductivity?.value) !== 'safe') names.push('CONDUCTIVIDAD')
+  return names
+})
+
+const waterSituationMessage = computed(() => {
+  if (!abnormalSensors.value.length) return ''
+  return `¡CUIDADO AGUA CON VALORES ANORMALES DE (${abnormalSensors.value.join(', ')})!`
 })
 
 const formatDate = (date) => {
@@ -1093,8 +1151,10 @@ const goToHome = () => {
 const goBack = () => {
   // Descartar cambios sin guardar cuando se regresa de la vista de configuración
   if (currentView.value === 'admin-alerts') {
+    // Sincronizar desde localStorage para reflejar cambios guardados
+    syncSensorLimitsFromStorage(SENSOR_LIMITS)
     editingLimits.value = normalizeSensorConfig(JSON.parse(JSON.stringify(SENSOR_LIMITS.value)))
-    console.log('[DEBUG] Cambios descartados, editingLimits restaurado a valores guardados')
+    console.log('[DEBUG] Cambios sincronizados desde localStorage y discardados locales')
     // Volver a la vista anterior (dashboard si viene del dispositivo)
     currentView.value = previousView.value || 'devices'
   } else {
@@ -1172,6 +1232,52 @@ const recalculateDerived = (sensorType) => {
   } catch (e) {
     console.error('Error recalculateDerived', e)
   }
+}
+
+/**
+ * Convierte la estructura de límites con danger_ranges/warning_ranges 
+ * a formato de thresholds {dangerLow, warningLow, warningHigh, dangerHigh}
+ */
+const getThresholdsFromLimits = (limits) => {
+  if (!limits) return null
+
+  // Estructura nueva con arreglos de rangos
+  if (Array.isArray(limits.danger_ranges) && Array.isArray(limits.warning_ranges) && limits.safe_min != null) {
+    const dangerRanges = limits.danger_ranges
+    const warningRanges = limits.warning_ranges
+
+    // Segmentación objetivo:
+    // izquierda: peligro -> advertencia -> seguro
+    // derecha: seguro -> advertencia -> peligro
+    const dangerLow = dangerRanges[0]?.max ?? limits.lower_danger_max ?? limits.base_min
+    const warningLow = warningRanges[0]?.max ?? limits.lower_warning_max ?? limits.safe_min
+    const warningHigh = warningRanges[warningRanges.length - 1]?.min ?? limits.upper_warning_min ?? limits.safe_max
+    const dangerHigh = dangerRanges[dangerRanges.length - 1]?.min ?? limits.upper_danger_min ?? limits.base_max
+
+    return {
+      dangerLow: Number(dangerLow),
+      warningLow: Number(warningLow),
+      warningHigh: Number(warningHigh),
+      dangerHigh: Number(dangerHigh)
+    }
+  }
+
+  // Estructura derivada local (sin arreglos)
+  if (
+    limits.lower_danger_max != null &&
+    limits.lower_warning_max != null &&
+    limits.upper_warning_min != null &&
+    limits.upper_danger_min != null
+  ) {
+    return {
+      dangerLow: Number(limits.lower_danger_max),
+      warningLow: Number(limits.lower_warning_max),
+      warningHigh: Number(limits.upper_warning_min),
+      dangerHigh: Number(limits.upper_danger_min)
+    }
+  }
+
+  return null
 }
 
 const normalizeSensorConfig = (cfg) => {
@@ -1500,11 +1606,22 @@ watch(() => SENSOR_LIMITS.value,
   { deep: true }
 )
 
+// Watcher para sincronizar cuando se regresa de admin-alerts
+watch(() => currentView.value, (newView, oldView) => {
+  if (oldView === 'admin-alerts' && newView !== 'admin-alerts') {
+    console.log('[Watcher] Regresando desde admin-alerts, sincronizando desde localStorage...')
+    syncSensorLimitsFromStorage(SENSOR_LIMITS)
+  }
+})
+
 onMounted(async () => {
   if (!hasValidSessionToken()) {
     router.push('/login')
     return
   }
+
+  // PRIMERO: Cargar límites desde localStorage (antes de anything)
+  syncSensorLimitsFromStorage(SENSOR_LIMITS)
 
   selectedDeviceId.value = 1
   console.log('[FRONTEND] VITE_DATA_MODE:', DATA_MODE)
@@ -1513,26 +1630,6 @@ onMounted(async () => {
   // Cargar lista de usuarios si es admin
   if (isAdmin.value) {
     await loadExistingUsers()
-    // Cargar límites del localStorage
-    const savedLimits = localStorage.getItem('sensorLimits')
-    if (savedLimits) {
-      try {
-        SENSOR_LIMITS.value = JSON.parse(savedLimits)
-        console.log('✅ Límites de alerta cargados desde localStorage:', SENSOR_LIMITS.value)
-      } catch (e) {
-        console.error('Error al cargar límites guardados:', e)
-      }
-    }
-  } else {
-    // Para usuarios normales, cargar del localStorage
-    const savedLimits = localStorage.getItem('sensorLimits')
-    if (savedLimits) {
-      try {
-        SENSOR_LIMITS.value = JSON.parse(savedLimits)
-      } catch (e) {
-        console.error('Error al cargar límites guardados:', e)
-      }
-    }
   }
 })
 
@@ -1759,6 +1856,36 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: 24px;
   margin-bottom: 40px;
+}
+
+.water-situation-section {
+  margin: -40px 0 24px;
+}
+
+.water-situation-banner {
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  border: 1px solid transparent;
+}
+
+.water-situation-banner.banner-safe {
+  background: #e8f5e9;
+  color: #1b5e20;
+  border-color: #a5d6a7;
+}
+
+.water-situation-banner.banner-warning {
+  background: #fff8e1;
+  color: #8a5a00;
+  border-color: #ffd54f;
+}
+
+.water-situation-banner.banner-danger {
+  background: #ffebee;
+  color: #b71c1c;
+  border-color: #ef9a9a;
 }
 
 .info-section {

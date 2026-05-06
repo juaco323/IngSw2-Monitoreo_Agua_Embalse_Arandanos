@@ -1,39 +1,29 @@
 <template>
-  <div class="sensor-card">
+  <div class="sensor-card" :class="`card-${statusClass}`">
     <div class="sensor-header">
       <h3 class="sensor-title">{{ sensorName }}</h3>
       <span class="sensor-status" :class="`status-${statusClass}`">
         {{ statusText }}
       </span>
     </div>
-    
-    <div class="gauge-wrapper">
-      <LinearGauge
-        :sensor-name="sensorName"
-        :value="value"
-        :min-value="min"
-        :max-value="max"
-        :unit="unit"
-        :width="450"
-        :height="150"
-        :major-ticks="majorTicks"
-        :minor-ticks="5"
-        :highlights="gaugeHighlights"
-        v-bind="linearGaugeThemeProps"
-      />
+
+    <div class="value-panel" :class="`value-${statusClass}`">
+      <div class="value-number">{{ formattedValue }}</div>
+      <div class="value-unit">{{ unit }}</div>
     </div>
 
     <div class="sensor-info">
       <div class="info-row">
-        <span class="info-label">Rango verde:</span>
-        <span class="info-value">{{ normalizedThresholds.warningLow.toFixed(1) }} - {{ normalizedThresholds.warningHigh.toFixed(1) }} {{ unit }}</span>
+        <span class="info-label">Rango seguro:</span>
+        <span class="info-value">{{ rangeText.safe }}</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Zona amarilla:</span>
-        <span class="info-value">
-          {{ normalizedThresholds.dangerLow.toFixed(1) }} - {{ normalizedThresholds.warningLow.toFixed(1) }}
-          / {{ normalizedThresholds.warningHigh.toFixed(1) }} - {{ normalizedThresholds.dangerHigh.toFixed(1) }} {{ unit }}
-        </span>
+        <span class="info-label">Rango advertencia:</span>
+        <span class="info-value">{{ rangeText.warning }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Rango peligro:</span>
+        <span class="info-value">{{ rangeText.danger }}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Última actualización:</span>
@@ -44,36 +34,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
-
-const gaugeIsDark = ref(false)
-
-function syncGaugeTheme() {
-  gaugeIsDark.value = document.documentElement.getAttribute('data-theme') === 'dark'
-}
-
-onMounted(() => {
-  syncGaugeTheme()
-  window.addEventListener('embalse-theme-change', syncGaugeTheme)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('embalse-theme-change', syncGaugeTheme)
-})
-
-const linearGaugeThemeProps = computed(() => {
-  if (!gaugeIsDark.value) return {}
-  return {
-    colorMajorTicks: '#94a3b8',
-    colorMinorTicks: '#64748b',
-    colorNumbers: '#e2e8f0',
-    colorUnits: '#cbd5e1',
-    colorPlate: '#1e293b',
-    colorPlateEnd: '#0f172a',
-    colorNeedle: '#fcd34d',
-  }
-})
-import LinearGauge from './LinearGauge.vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   sensorName: {
@@ -157,36 +118,23 @@ const statusText = computed(() => {
   return 'Estable'
 })
 
-const majorTicks = computed(() => {
-  const range = props.max - props.min
-  const step = range / 10
-  const ticks = []
-  for (let i = 0; i <= 10; i++) {
-    ticks.push(parseFloat((props.min + i * step).toFixed(2)))
-  }
-  return ticks
+const formattedValue = computed(() => {
+  const num = Number(props.value)
+  if (!Number.isFinite(num)) return '--'
+  return num.toFixed(2)
 })
 
-const gaugeHighlights = computed(() => {
-  const thresholds = normalizedThresholds.value
+const formatRangeNumber = (num) => {
+  if (!Number.isFinite(num)) return '--'
+  return Number(num).toFixed(1)
+}
 
-  // Para temperatura: azul en extremo frío, para pH y conductividad: rojo en ambos extremos
-  if (props.sensorType === 'temperature') {
-    return [
-      { from: props.min, to: thresholds.dangerLow, color: 'rgba(0, 0, 255, 0.25)' },
-      { from: thresholds.dangerLow, to: thresholds.warningLow, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.warningLow, to: thresholds.warningHigh, color: 'rgba(76, 175, 80, 0.25)' },
-      { from: thresholds.warningHigh, to: thresholds.dangerHigh, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.dangerHigh, to: props.max, color: 'rgba(255, 0, 0, 0.25)' }
-    ]
-  } else {
-    return [
-      { from: props.min, to: thresholds.dangerLow, color: 'rgba(255, 0, 0, 0.25)' },
-      { from: thresholds.dangerLow, to: thresholds.warningLow, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.warningLow, to: thresholds.warningHigh, color: 'rgba(76, 175, 80, 0.25)' },
-      { from: thresholds.warningHigh, to: thresholds.dangerHigh, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.dangerHigh, to: props.max, color: 'rgba(255, 0, 0, 0.25)' }
-    ]
+const rangeText = computed(() => {
+  const t = normalizedThresholds.value
+  return {
+    safe: `${formatRangeNumber(t.warningLow)} - ${formatRangeNumber(t.warningHigh)} ${props.unit}`,
+    warning: `${formatRangeNumber(t.dangerLow)} - ${formatRangeNumber(t.warningLow)} / ${formatRangeNumber(t.warningHigh)} - ${formatRangeNumber(t.dangerHigh)} ${props.unit}`,
+    danger: `${formatRangeNumber(props.min)} - ${formatRangeNumber(t.dangerLow)} / ${formatRangeNumber(t.dangerHigh)} - ${formatRangeNumber(props.max)} ${props.unit}`
   }
 })
 </script>
@@ -246,15 +194,57 @@ const gaugeHighlights = computed(() => {
   color: #c62828;
 }
 
-.gauge-wrapper {
+.card-safe {
+  border-color: #6aa84f;
+}
+
+.card-warning {
+  border-color: #f1c232;
+}
+
+.card-danger {
+  border-color: #cc0000;
+}
+
+.value-panel {
+  margin: 18px 0;
+  border-radius: 10px;
+  padding: 20px;
   display: flex;
+  align-items: baseline;
   justify-content: center;
-  margin: 24px 0;
+  gap: 10px;
+}
+
+.value-safe {
+  background: #2e7d32;
+  color: #ffffff;
+}
+
+.value-warning {
+  background: #f1c232;
+  color: #1a1a1a;
+}
+
+.value-danger {
+  background: #cc0000;
+  color: #ffffff;
+}
+
+.value-number {
+  font-size: 42px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.value-unit {
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .sensor-info {
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid #f0f0f0;
 }
 
