@@ -191,35 +191,47 @@
         <!-- Inputs globales base (admin) -->
         <div class="base-inputs-grid">
           <div class="base-input-card">
-            <h4>🔬 pH - Base</h4>
+            <h4>🔬 pH - Configuración Global</h4>
             <div class="config-group">
-              <label>Mínimo global:</label>
+              <label>Mínimo:</label>
               <input v-model.number="editingLimits.ph.base_min" type="number" step="0.1" @change="recalculateDerived('ph')" />
             </div>
             <div class="config-group">
-              <label>Máximo global:</label>
+              <label>Valor Medio:</label>
+              <input v-model.number="editingLimits.ph.midpoint" type="number" step="0.1" @change="recalculateDerived('ph')" />
+            </div>
+            <div class="config-group">
+              <label>Máximo:</label>
               <input v-model.number="editingLimits.ph.base_max" type="number" step="0.1" @change="recalculateDerived('ph')" />
             </div>
           </div>
           <div class="base-input-card">
-            <h4>🌡️ Temperatura - Base</h4>
+            <h4>🌡️ Temperatura - Configuración Global</h4>
             <div class="config-group">
-              <label>Mínimo global:</label>
+              <label>Mínimo:</label>
               <input v-model.number="editingLimits.temperature.base_min" type="number" step="1" @change="recalculateDerived('temperature')" />
             </div>
             <div class="config-group">
-              <label>Máximo global:</label>
+              <label>Valor Medio:</label>
+              <input v-model.number="editingLimits.temperature.midpoint" type="number" step="1" @change="recalculateDerived('temperature')" />
+            </div>
+            <div class="config-group">
+              <label>Máximo:</label>
               <input v-model.number="editingLimits.temperature.base_max" type="number" step="1" @change="recalculateDerived('temperature')" />
             </div>
           </div>
           <div class="base-input-card">
-            <h4>⚡ Conductividad - Base</h4>
+            <h4>⚡ Conductividad - Configuración Global</h4>
             <div class="config-group">
-              <label>Mínimo global:</label>
+              <label>Mínimo:</label>
               <input v-model.number="editingLimits.conductivity.base_min" type="number" step="10" @change="recalculateDerived('conductivity')" />
             </div>
             <div class="config-group">
-              <label>Máximo global:</label>
+              <label>Valor Medio:</label>
+              <input v-model.number="editingLimits.conductivity.midpoint" type="number" step="10" @change="recalculateDerived('conductivity')" />
+            </div>
+            <div class="config-group">
+              <label>Máximo:</label>
               <input v-model.number="editingLimits.conductivity.base_max" type="number" step="10" @change="recalculateDerived('conductivity')" />
             </div>
           </div>
@@ -663,9 +675,9 @@ const DATA_MODE = import.meta.env.VITE_DATA_MODE || 'real'
 const ALERT_TABLE_LIMIT = 5
 
 let SENSOR_LIMITS = ref({
-  ph: { danger_min: 0, danger_max: 5.5, warning_min: 5.5, warning_max: 6.5, safe_min: 6.5, safe_max: 8.5 },
-  temperature: { danger_min: 0, danger_max: 10, warning_min: 10, warning_max: 15, safe_min: 15, safe_max: 30 },
-  conductivity: { danger_min: 0, danger_max: 100, warning_min: 100, warning_max: 500, safe_min: 500, safe_max: 2000 }
+  ph: { base_min: 0, midpoint: 4.25, base_max: 8.5, danger_min: 0, danger_max: 5.5, warning_min: 5.5, warning_max: 6.5, safe_min: 6.5, safe_max: 8.5 },
+  temperature: { base_min: 0, midpoint: 15, base_max: 30, danger_min: 0, danger_max: 10, warning_min: 10, warning_max: 15, safe_min: 15, safe_max: 30 },
+  conductivity: { base_min: 0, midpoint: 1000, base_max: 2000, danger_min: 0, danger_max: 100, warning_min: 100, warning_max: 500, safe_min: 500, safe_max: 2000 }
 })
 
 // Estado para prevenir guardado automático - solo se guarda cuando usuario hace click en botón
@@ -676,6 +688,7 @@ const hasUnsavedChanges = ref(false)
 let editingLimits = ref({
   ph: {
     base_min: 0,
+    midpoint: 4.25,
     base_max: 8.5,
     // derived (lower side)
     lower_danger_max: 5.5,
@@ -689,6 +702,7 @@ let editingLimits = ref({
   },
   temperature: {
     base_min: 0,
+    midpoint: 15,
     base_max: 30,
     lower_danger_max: 10,
     lower_warning_max: 15,
@@ -699,6 +713,7 @@ let editingLimits = ref({
   },
   conductivity: {
     base_min: 0,
+    midpoint: 1000,
     base_max: 2000,
     lower_danger_max: 100,
     lower_warning_max: 500,
@@ -1053,6 +1068,10 @@ const openAlertConfigView = () => {
   previousView.value = currentView.value
   // Copiar valores actuales a editingLimits para que los cambios no afecten los gráficos hasta guardar
   editingLimits.value = normalizeSensorConfig(JSON.parse(JSON.stringify(SENSOR_LIMITS.value)))
+  // Asegurar que todos los derivados están calculados
+  for (const sensorType of ['ph', 'temperature', 'conductivity']) {
+    recalculateDerived(sensorType)
+  }
   console.log('[DEBUG] editingLimits cargado con valores guardados:', editingLimits.value)
   currentView.value = 'admin-alerts'
 }
@@ -1091,15 +1110,16 @@ const handleLogout = () => {
 }
 
 const validateAlertLimits = (sensorType, limits) => {
-  // Espera la estructura derivada en editingLimits: base_min, base_max, lower_danger_max, lower_warning_max, safe_min, safe_max, upper_warning_min, upper_danger_min
-  const nums = ['base_min','base_max','lower_danger_max','lower_warning_max','safe_min','safe_max','upper_warning_min','upper_danger_min']
+  // Espera la estructura derivada en editingLimits: base_min, midpoint, base_max, lower_danger_max, lower_warning_max, safe_min, safe_max, upper_warning_min, upper_danger_min
+  const nums = ['base_min','midpoint','base_max','lower_danger_max','lower_warning_max','safe_min','safe_max','upper_warning_min','upper_danger_min']
   for (const n of nums) {
     if (typeof limits[n] !== 'number' || Number.isNaN(limits[n])) {
       return { valid: false, message: `Falta o es inválido ${n} para ${sensorType}` }
     }
   }
 
-  if (limits.base_min >= limits.base_max) return { valid: false, message: `base_min debe ser menor que base_max para ${sensorType}` }
+  if (limits.base_min >= limits.midpoint) return { valid: false, message: `base_min debe ser menor que midpoint para ${sensorType}` }
+  if (limits.midpoint >= limits.base_max) return { valid: false, message: `midpoint debe ser menor que base_max para ${sensorType}` }
 
   if (!(limits.base_min < limits.lower_danger_max && limits.lower_danger_max < limits.lower_warning_max)) {
     return { valid: false, message: `Rangos inferiores inconsistentes para ${sensorType}` }
@@ -1114,8 +1134,7 @@ const validateAlertLimits = (sensorType, limits) => {
   return { valid: true, message: 'OK' }
 }
 
-const deriveLimits = (min, max) => {
-  const midpoint = (min + max) / 2
+const deriveLimits = (min, midpoint, max) => {
   const L = midpoint - min
   const R = max - midpoint
 
@@ -1128,6 +1147,7 @@ const deriveLimits = (min, max) => {
 
   return {
     base_min: min,
+    midpoint,
     base_max: max,
     lower_danger_max,
     lower_warning_max,
@@ -1142,10 +1162,11 @@ const recalculateDerived = (sensorType) => {
   try {
     const s = editingLimits.value[sensorType]
     const min = Number(s.base_min)
+    const midpoint = Number(s.midpoint)
     const max = Number(s.base_max)
-    if (isNaN(min) || isNaN(max)) return
-    if (min >= max) return
-    const d = deriveLimits(min, max)
+    if (isNaN(min) || isNaN(midpoint) || isNaN(max)) return
+    if (min >= midpoint || midpoint >= max) return
+    const d = deriveLimits(min, midpoint, max)
     // assign derived fields back into editingLimits
     editingLimits.value[sensorType] = { ...editingLimits.value[sensorType], ...d }
   } catch (e) {
@@ -1157,17 +1178,19 @@ const normalizeSensorConfig = (cfg) => {
   const out = { ph: {}, temperature: {}, conductivity: {} }
   for (const k of ['ph', 'temperature', 'conductivity']) {
     const s = cfg[k] || {}
-    if (typeof s.base_min === 'number' && typeof s.base_max === 'number') {
+    if (typeof s.base_min === 'number' && typeof s.midpoint === 'number' && typeof s.base_max === 'number') {
       out[k] = { ...s }
     } else if (Array.isArray(s.danger_ranges) && s.danger_ranges.length > 0 && typeof s.base_min === 'undefined') {
       // infer base_min/base_max from danger ranges
       const base_min = s.danger_ranges[0].min
       const base_max = s.danger_ranges[s.danger_ranges.length - 1].max
-      out[k] = deriveLimits(Number(base_min), Number(base_max))
+      const midpoint = (base_min + base_max) / 2 // auto-compute if missing
+      out[k] = deriveLimits(Number(base_min), midpoint, Number(base_max))
     } else {
       const base_min = (s.danger_min != null) ? s.danger_min : (s.base_min != null ? s.base_min : 0)
       const base_max = (s.danger_max != null) ? s.danger_max : (s.base_max != null ? s.base_max : (base_min + 10))
-      out[k] = deriveLimits(Number(base_min), Number(base_max))
+      const midpoint = (s.midpoint != null) ? s.midpoint : ((Number(base_min) + Number(base_max)) / 2)
+      out[k] = deriveLimits(Number(base_min), midpoint, Number(base_max))
     }
   }
   return out
@@ -1210,6 +1233,7 @@ const saveAllAlertConfigs = async () => {
       recalculateDerived(sensorType)
       const s = editingLimits.value[sensorType]
       const base_min = Number(s.base_min)
+      const midpoint = Number(s.midpoint)
       const base_max = Number(s.base_max)
       const lower_danger_max = Number(s.lower_danger_max)
       const lower_warning_max = Number(s.lower_warning_max)
@@ -1220,6 +1244,7 @@ const saveAllAlertConfigs = async () => {
 
       SENSOR_LIMITS.value[sensorType] = {
         base_min,
+        midpoint,
         base_max,
         safe_min,
         safe_max,
@@ -1285,6 +1310,7 @@ const saveAlertConfig = async (sensorType) => {
     recalculateDerived(sensorType)
     const s = editingLimits.value[sensorType]
     const base_min = Number(s.base_min)
+    const midpoint = Number(s.midpoint)
     const base_max = Number(s.base_max)
     const lower_danger_max = Number(s.lower_danger_max)
     const lower_warning_max = Number(s.lower_warning_max)
@@ -1295,6 +1321,7 @@ const saveAlertConfig = async (sensorType) => {
 
     SENSOR_LIMITS.value[sensorType] = {
       base_min,
+      midpoint,
       base_max,
       safe_min,
       safe_max,
