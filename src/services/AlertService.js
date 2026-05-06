@@ -56,17 +56,42 @@ export const checkAndSendAlerts = async (device, sensorLimits) => {
 
   // Función auxiliar para determinar el nivel de riesgo
   const getAlertLevel = (value, limits) => {
-    const { danger_min, danger_max, warning_min, warning_max, safe_min, safe_max } = limits
-    
-    if (value >= safe_min && value <= safe_max) {
-      return 'safe'
-    } else if (value >= warning_min && value <= warning_max) {
-      return 'warning'
-    } else if (value >= danger_min && value <= danger_max) {
-      return 'danger'
-    } else {
-      return 'danger' // Completamente fuera
+    // Nueva estructura soportada: { base_min, base_max, safe_min, safe_max, danger_ranges: [{min,max}], warning_ranges: [{min,max}] }
+    if (!limits) return 'danger'
+
+    // Safe direct check
+    if (typeof limits.safe_min === 'number' && typeof limits.safe_max === 'number') {
+      if (value >= limits.safe_min && value <= limits.safe_max) return 'safe'
     }
+
+    // Warnings (array of ranges)
+    if (Array.isArray(limits.warning_ranges)) {
+      for (const r of limits.warning_ranges) {
+        if (typeof r.min === 'number' && typeof r.max === 'number' && value >= r.min && value <= r.max) return 'warning'
+      }
+    }
+
+    // Dangers (array of ranges)
+    if (Array.isArray(limits.danger_ranges)) {
+      for (const r of limits.danger_ranges) {
+        if (typeof r.min === 'number' && typeof r.max === 'number' && value >= r.min && value <= r.max) return 'danger'
+      }
+    }
+
+    // Backwards compatibility: single-range fields
+    const { danger_min, danger_max, warning_min, warning_max } = limits
+    if (typeof warning_min === 'number' && typeof warning_max === 'number') {
+      if (value >= warning_min && value <= warning_max) return 'warning'
+    }
+    if (typeof danger_min === 'number' && typeof danger_max === 'number') {
+      if (value >= danger_min && value <= danger_max) return 'danger'
+    }
+
+    // Fallback: outside base bounds => danger, otherwise warning
+    if (typeof limits.base_min === 'number' && value < limits.base_min) return 'danger'
+    if (typeof limits.base_max === 'number' && value > limits.base_max) return 'danger'
+
+    return 'warning'
   }
 
   // Verificar pH

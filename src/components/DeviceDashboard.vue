@@ -69,31 +69,34 @@
         </div>
       </section>
 
-      <div class="sensors-grid">
+      <div class="sensors-grid" v-if="sensors && selectedDevice.id">
         <SensorCard
+          v-if="sensors.ph"
           sensor-name="pH"
           :value="sensors.ph.value"
-          :min="SENSOR_LIMITS.value.ph.safe_min"
-          :max="SENSOR_LIMITS.value.ph.safe_max"
-          :safe-max="SENSOR_LIMITS.value.ph.safe_max"
+          :min="SENSOR_LIMITS.value?.ph?.safe_min || 0"
+          :max="SENSOR_LIMITS.value?.ph?.safe_max || 14"
+          :safe-max="SENSOR_LIMITS.value?.ph?.safe_max || 14"
           unit="pH"
           :last-updated="lastSync"
         />
         <SensorCard
+          v-if="sensors.temperature"
           sensor-name="Temperatura"
           :value="sensors.temperature.value"
-          :min="SENSOR_LIMITS.value.temperature.safe_min"
-          :max="SENSOR_LIMITS.value.temperature.safe_max"
-          :safe-max="SENSOR_LIMITS.value.temperature.safe_max"
+          :min="SENSOR_LIMITS.value?.temperature?.safe_min || 0"
+          :max="SENSOR_LIMITS.value?.temperature?.safe_max || 50"
+          :safe-max="SENSOR_LIMITS.value?.temperature?.safe_max || 50"
           unit="°C"
           :last-updated="lastSync"
         />
         <SensorCard
+          v-if="sensors.conductivity"
           sensor-name="Conductividad Eléctrica"
           :value="sensors.conductivity.value"
-          :min="SENSOR_LIMITS.value.conductivity.safe_min"
-          :max="SENSOR_LIMITS.value.conductivity.safe_max"
-          :safe-max="SENSOR_LIMITS.value.conductivity.safe_max"
+          :min="SENSOR_LIMITS.value?.conductivity?.safe_min || 0"
+          :max="SENSOR_LIMITS.value?.conductivity?.safe_max || 5000"
+          :safe-max="SENSOR_LIMITS.value?.conductivity?.safe_max || 5000"
           unit="µS/cm"
           :last-updated="lastSync"
         />
@@ -182,138 +185,229 @@
       <section class="alerts-config-section">
         <div class="alerts-header">
           <h2 class="section-title">Configuracion de rangos por sensor</h2>
+          <p class="section-subtitle">Organizado de abajo hacia arriba: Peligro-Advertencia | Seguro | Peligro-Advertencia</p>
         </div>
 
-        <div class="alerts-config-grid">
-          <!-- pH -->
-          <div class="alert-config-card">
-            <h3>🔬 pH</h3>
-            
-            <div class="config-level">
-              <h4>🔴 Peligroso</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.ph.danger_min" type="number" step="0.1" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.ph.danger_max" type="number" step="0.1" />
-              </div>
+        <!-- Inputs globales base (admin) -->
+        <div class="base-inputs-grid">
+          <div class="base-input-card">
+            <h4>🔬 pH - Base</h4>
+            <div class="config-group">
+              <label>Mínimo global:</label>
+              <input v-model.number="editingLimits.ph.base_min" type="number" step="0.1" @change="recalculateDerived('ph')" />
             </div>
-            
-            <div class="config-level">
-              <h4>🟠 Advertencia</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.ph.warning_min" type="number" step="0.1" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.ph.warning_max" type="number" step="0.1" />
-              </div>
+            <div class="config-group">
+              <label>Máximo global:</label>
+              <input v-model.number="editingLimits.ph.base_max" type="number" step="0.1" @change="recalculateDerived('ph')" />
             </div>
-            
-            <div class="config-level">
-              <h4>🟢 Seguro</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.ph.safe_min" type="number" step="0.1" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.ph.safe_max" type="number" step="0.1" />
-              </div>
-            </div>
-            
-            <button class="save-config-btn" @click="saveAlertConfig('ph')">Guardar pH</button>
           </div>
-
-          <!-- Temperatura -->
-          <div class="alert-config-card">
-            <h3>🌡️ Temperatura (°C)</h3>
-            
-            <div class="config-level">
-              <h4>🔴 Peligroso</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.temperature.danger_min" type="number" step="1" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.temperature.danger_max" type="number" step="1" />
-              </div>
+          <div class="base-input-card">
+            <h4>🌡️ Temperatura - Base</h4>
+            <div class="config-group">
+              <label>Mínimo global:</label>
+              <input v-model.number="editingLimits.temperature.base_min" type="number" step="1" @change="recalculateDerived('temperature')" />
             </div>
-            
-            <div class="config-level">
-              <h4>🟠 Advertencia</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.temperature.warning_min" type="number" step="1" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.temperature.warning_max" type="number" step="1" />
-              </div>
+            <div class="config-group">
+              <label>Máximo global:</label>
+              <input v-model.number="editingLimits.temperature.base_max" type="number" step="1" @change="recalculateDerived('temperature')" />
             </div>
-            
-            <div class="config-level">
-              <h4>🟢 Seguro</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.temperature.safe_min" type="number" step="1" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.temperature.safe_max" type="number" step="1" />
-              </div>
-            </div>
-            
-            <button class="save-config-btn" @click="saveAlertConfig('temperature')">Guardar temperatura</button>
           </div>
-
-          <!-- Conductividad -->
-          <div class="alert-config-card">
-            <h3>⚡ Conductividad (µS/cm)</h3>
-            
-            <div class="config-level">
-              <h4>🔴 Peligroso</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.conductivity.danger_min" type="number" step="10" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.conductivity.danger_max" type="number" step="10" />
-              </div>
+          <div class="base-input-card">
+            <h4>⚡ Conductividad - Base</h4>
+            <div class="config-group">
+              <label>Mínimo global:</label>
+              <input v-model.number="editingLimits.conductivity.base_min" type="number" step="10" @change="recalculateDerived('conductivity')" />
             </div>
-            
-            <div class="config-level">
-              <h4>🟠 Advertencia</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.conductivity.warning_min" type="number" step="10" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.conductivity.warning_max" type="number" step="10" />
-              </div>
+            <div class="config-group">
+              <label>Máximo global:</label>
+              <input v-model.number="editingLimits.conductivity.base_max" type="number" step="10" @change="recalculateDerived('conductivity')" />
             </div>
-            
-            <div class="config-level">
-              <h4>🟢 Seguro</h4>
-              <div class="config-group">
-                <label>Mínimo:</label>
-                <input v-model.number="editingLimits.conductivity.safe_min" type="number" step="10" />
-              </div>
-              <div class="config-group">
-                <label>Máximo:</label>
-                <input v-model.number="editingLimits.conductivity.safe_max" type="number" step="10" />
-              </div>
-            </div>
-            
-            <button class="save-config-btn" @click="saveAlertConfig('conductivity')">Guardar conductividad</button>
           </div>
         </div>
+
+        <!-- STACK INFERIOR: Peligroso + Advertencia (derivadas desde base) -->
+        <div class="config-stack-section">
+          <h3 class="stack-title">📍 Stack Inferior - Rangos Críticos (Peligroso + Advertencia)</h3>
+          <div class="config-stack-grid">
+            
+            <!-- pH Inferior (derivado) -->
+            <div class="config-stack-card">
+              <h4>🔬 pH</h4>
+              <div class="config-level">
+                <h5>🔴 Peligroso (extremo inferior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.ph.base_min }} — {{ editingLimits.ph.lower_danger_max }}</div>
+                </div>
+              </div>
+              <div class="config-level">
+                <h5>🟠 Advertencia (inferior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.ph.lower_danger_max }} — {{ editingLimits.ph.lower_warning_max }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Temperatura Inferior (derivado) -->
+            <div class="config-stack-card">
+              <h4>🌡️ Temperatura (°C)</h4>
+              <div class="config-level">
+                <h5>🔴 Peligroso (extremo inferior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.temperature.base_min }} — {{ editingLimits.temperature.lower_danger_max }}</div>
+                </div>
+              </div>
+              <div class="config-level">
+                <h5>🟠 Advertencia (inferior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.temperature.lower_danger_max }} — {{ editingLimits.temperature.lower_warning_max }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Conductividad Inferior (derivado) -->
+            <div class="config-stack-card">
+              <h4>⚡ Conductividad (µS/cm)</h4>
+              <div class="config-level">
+                <h5>🔴 Peligroso (extremo inferior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.conductivity.base_min }} — {{ editingLimits.conductivity.lower_danger_max }}</div>
+                </div>
+              </div>
+              <div class="config-level">
+                <h5>🟠 Advertencia (inferior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.conductivity.lower_danger_max }} — {{ editingLimits.conductivity.lower_warning_max }}</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- STACK MEDIO: Solo Seguro (derivado) -->
+        <div class="config-stack-section">
+          <h3 class="stack-title">✅ Stack Medio - Rango Seguro</h3>
+          <div class="config-stack-grid">
+            
+            <!-- pH Seguro -->
+            <div class="config-stack-card config-safe">
+              <h4>🔬 pH</h4>
+              <div class="config-level">
+                <h5>🟢 Seguro</h5>
+                <div class="config-group">
+                  <label>Rango seguro:</label>
+                  <div>{{ editingLimits.ph.safe_min }} — {{ editingLimits.ph.safe_max }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Temperatura Seguro -->
+            <div class="config-stack-card config-safe">
+              <h4>🌡️ Temperatura (°C)</h4>
+              <div class="config-level">
+                <h5>🟢 Seguro</h5>
+                <div class="config-group">
+                  <label>Rango seguro:</label>
+                  <div>{{ editingLimits.temperature.safe_min }} — {{ editingLimits.temperature.safe_max }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Conductividad Seguro -->
+            <div class="config-stack-card config-safe">
+              <h4>⚡ Conductividad (µS/cm)</h4>
+              <div class="config-level">
+                <h5>🟢 Seguro</h5>
+                <div class="config-group">
+                  <label>Rango seguro:</label>
+                  <div>{{ editingLimits.conductivity.safe_min }} — {{ editingLimits.conductivity.safe_max }}</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- STACK SUPERIOR: Peligroso + Advertencia -->
+        <div class="config-stack-section">
+          <h3 class="stack-title">📍 Stack Superior - Rangos Críticos (Peligroso + Advertencia)</h3>
+          <div class="config-stack-grid">
+            
+            <!-- pH Superior (derivado) -->
+            <div class="config-stack-card">
+              <h4>🔬 pH</h4>
+              <div class="config-level">
+                <h5>🟠 Advertencia (superior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.ph.upper_warning_min }} — {{ editingLimits.ph.upper_danger_min }}</div>
+                </div>
+              </div>
+              <div class="config-level">
+                <h5>🔴 Peligroso (extremo superior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.ph.upper_danger_min }} — {{ editingLimits.ph.base_max }}</div>
+                </div>
+              </div>
+              <p class="stack-note">↑ Valores de referencia (sincronizados del base)</p>
+            </div>
+
+            <!-- Temperatura Superior (derivado) -->
+            <div class="config-stack-card">
+              <h4>🌡️ Temperatura (°C)</h4>
+              <div class="config-level">
+                <h5>🟠 Advertencia (superior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.temperature.upper_warning_min }} — {{ editingLimits.temperature.upper_danger_min }}</div>
+                </div>
+              </div>
+              <div class="config-level">
+                <h5>🔴 Peligroso (extremo superior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.temperature.upper_danger_min }} — {{ editingLimits.temperature.base_max }}</div>
+                </div>
+              </div>
+              <p class="stack-note">↑ Valores de referencia (sincronizados del base)</p>
+            </div>
+
+            <!-- Conductividad Superior (derivado) -->
+            <div class="config-stack-card">
+              <h4>⚡ Conductividad (µS/cm)</h4>
+              <div class="config-level">
+                <h5>🟠 Advertencia (superior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.conductivity.upper_warning_min }} — {{ editingLimits.conductivity.upper_danger_min }}</div>
+                </div>
+              </div>
+              <div class="config-level">
+                <h5>🔴 Peligroso (extremo superior)</h5>
+                <div class="config-group">
+                  <label>Rango:</label>
+                  <div>{{ editingLimits.conductivity.upper_danger_min }} — {{ editingLimits.conductivity.base_max }}</div>
+                </div>
+              </div>
+              <p class="stack-note">↑ Valores de referencia (sincronizados del base)</p>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Botones de Guardado Global -->
+        <div class="config-actions">
+          <button class="save-all-btn" @click="saveAllAlertConfigs">💾 Guardar Todos los Cambios</button>
+          <button class="reset-btn" @click="resetEditingLimits">↺ Descartar Cambios</button>
+        </div>
+
       </section>
     </main>
   </div>
@@ -556,7 +650,7 @@ import ThemeToggleButton from './ThemeToggleButton.vue'
 import SensorCard from './SensorCard.vue'
 import { checkAndSendAlerts } from '../services/AlertService.js'
 import { fetchDashboardData, fetchSensorHistory } from '../services/ArduinoConfig.js'
-import { createUserInSupabase, getAllUsersMerged, deleteUserFromSupabase, saveAlertLimits, getAlertLimitsByAdmin, getCurrentUser } from '../services/SupabaseAuthService.js'
+import { createUserInSupabase, getAllUsersMerged, deleteUserFromSupabase } from '../services/SupabaseAuthService.js'
 import { clearSession, stopSessionIdleWatcher, hasValidSessionToken } from '../services/sessionAuth.js'
 
 const router = useRouter()
@@ -580,9 +674,39 @@ const hasUnsavedChanges = ref(false)
 
 // Estado para edición temporal - los cambios NO afectan los gráficos hasta guardar
 let editingLimits = ref({
-  ph: { danger_min: 0, danger_max: 5.5, warning_min: 5.5, warning_max: 6.5, safe_min: 6.5, safe_max: 8.5 },
-  temperature: { danger_min: 0, danger_max: 10, warning_min: 10, warning_max: 15, safe_min: 15, safe_max: 30 },
-  conductivity: { danger_min: 0, danger_max: 100, warning_min: 100, warning_max: 500, safe_min: 500, safe_max: 2000 }
+  ph: {
+    base_min: 0,
+    base_max: 8.5,
+    // derived (lower side)
+    lower_danger_max: 5.5,
+    lower_warning_max: 6.5,
+    // safe span
+    safe_min: 6.5,
+    safe_max: 6.5,
+    // derived (upper side)
+    upper_warning_min: 6.5,
+    upper_danger_min: 6.5
+  },
+  temperature: {
+    base_min: 0,
+    base_max: 30,
+    lower_danger_max: 10,
+    lower_warning_max: 15,
+    safe_min: 15,
+    safe_max: 15,
+    upper_warning_min: 15,
+    upper_danger_min: 15
+  },
+  conductivity: {
+    base_min: 0,
+    base_max: 2000,
+    lower_danger_max: 100,
+    lower_warning_max: 500,
+    safe_min: 500,
+    safe_max: 500,
+    upper_warning_min: 500,
+    upper_danger_min: 500
+  }
 })
 
 const currentView = ref('devices')
@@ -633,11 +757,20 @@ const selectedDevice = computed(() => {
   }
 })
 
-const sensors = computed(() => ({
-  ph: { value: selectedDevice.value.sensors.ph },
-  temperature: { value: selectedDevice.value.sensors.temperature },
-  conductivity: { value: selectedDevice.value.sensors.conductivity }
-}))
+const sensors = computed(() => {
+  if (!selectedDevice.value?.sensors) {
+    return {
+      ph: { value: 0 },
+      temperature: { value: 0 },
+      conductivity: { value: 0 }
+    }
+  }
+  return {
+    ph: { value: selectedDevice.value.sensors.ph || 0 },
+    temperature: { value: selectedDevice.value.sensors.temperature || 0 },
+    conductivity: { value: selectedDevice.value.sensors.conductivity || 0 }
+  }
+})
 
 const historyRecords = ref([])
 const historyFilters = ref({
@@ -654,10 +787,13 @@ const getStatus = (value, min, max) => {
 }
 
 const overallStatus = computed(() => {
+  if (!sensors.value?.ph?.value || !SENSOR_LIMITS.value?.ph) {
+    return 'safe'
+  }
   const statuses = [
-    getStatus(sensors.value.ph.value, SENSOR_LIMITS.value.ph.min, SENSOR_LIMITS.value.ph.max),
-    getStatus(sensors.value.temperature.value, SENSOR_LIMITS.value.temperature.min, SENSOR_LIMITS.value.temperature.max),
-    getStatus(sensors.value.conductivity.value, SENSOR_LIMITS.value.conductivity.min, SENSOR_LIMITS.value.conductivity.max)
+    getStatus(sensors.value.ph.value, SENSOR_LIMITS.value.ph.safe_min || 0, SENSOR_LIMITS.value.ph.safe_max || 14),
+    getStatus(sensors.value.temperature.value, SENSOR_LIMITS.value.temperature.safe_min || 0, SENSOR_LIMITS.value.temperature.safe_max || 50),
+    getStatus(sensors.value.conductivity.value, SENSOR_LIMITS.value.conductivity.safe_min || 0, SENSOR_LIMITS.value.conductivity.safe_max || 5000)
   ]
   if (statuses.includes('danger')) return 'danger'
   if (statuses.includes('warning')) return 'warning'
@@ -696,9 +832,9 @@ const createRecord = ({ ph, temperature, conductivity, timestamp }) => {
   const safeTemperature = Number(Number(temperature).toFixed(2))
   const safeConductivity = Number(Number(conductivity).toFixed(2))
   const isAlert =
-    safePh < SENSOR_LIMITS.value.ph.min || safePh > SENSOR_LIMITS.value.ph.max ||
-    safeTemperature < SENSOR_LIMITS.value.temperature.min || safeTemperature > SENSOR_LIMITS.value.temperature.max ||
-    safeConductivity < SENSOR_LIMITS.value.conductivity.min || safeConductivity > SENSOR_LIMITS.value.conductivity.max
+    safePh < (SENSOR_LIMITS.value?.ph?.safe_min || 0) || safePh > (SENSOR_LIMITS.value?.ph?.safe_max || 14) ||
+    safeTemperature < (SENSOR_LIMITS.value?.temperature?.safe_min || 0) || safeTemperature > (SENSOR_LIMITS.value?.temperature?.safe_max || 50) ||
+    safeConductivity < (SENSOR_LIMITS.value?.conductivity?.safe_min || 0) || safeConductivity > (SENSOR_LIMITS.value?.conductivity?.safe_max || 5000)
 
   return {
     id: `real-${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,
@@ -916,7 +1052,7 @@ const openAlertConfigView = () => {
   // Guardar desde donde vino el usuario
   previousView.value = currentView.value
   // Copiar valores actuales a editingLimits para que los cambios no afecten los gráficos hasta guardar
-  editingLimits.value = JSON.parse(JSON.stringify(SENSOR_LIMITS.value))
+  editingLimits.value = normalizeSensorConfig(JSON.parse(JSON.stringify(SENSOR_LIMITS.value)))
   console.log('[DEBUG] editingLimits cargado con valores guardados:', editingLimits.value)
   currentView.value = 'admin-alerts'
 }
@@ -938,7 +1074,7 @@ const goToHome = () => {
 const goBack = () => {
   // Descartar cambios sin guardar cuando se regresa de la vista de configuración
   if (currentView.value === 'admin-alerts') {
-    editingLimits.value = JSON.parse(JSON.stringify(SENSOR_LIMITS.value))
+    editingLimits.value = normalizeSensorConfig(JSON.parse(JSON.stringify(SENSOR_LIMITS.value)))
     console.log('[DEBUG] Cambios descartados, editingLimits restaurado a valores guardados')
     // Volver a la vista anterior (dashboard si viene del dispositivo)
     currentView.value = previousView.value || 'devices'
@@ -954,6 +1090,175 @@ const handleLogout = () => {
   router.push('/login')
 }
 
+const validateAlertLimits = (sensorType, limits) => {
+  // Espera la estructura derivada en editingLimits: base_min, base_max, lower_danger_max, lower_warning_max, safe_min, safe_max, upper_warning_min, upper_danger_min
+  const nums = ['base_min','base_max','lower_danger_max','lower_warning_max','safe_min','safe_max','upper_warning_min','upper_danger_min']
+  for (const n of nums) {
+    if (typeof limits[n] !== 'number' || Number.isNaN(limits[n])) {
+      return { valid: false, message: `Falta o es inválido ${n} para ${sensorType}` }
+    }
+  }
+
+  if (limits.base_min >= limits.base_max) return { valid: false, message: `base_min debe ser menor que base_max para ${sensorType}` }
+
+  if (!(limits.base_min < limits.lower_danger_max && limits.lower_danger_max < limits.lower_warning_max)) {
+    return { valid: false, message: `Rangos inferiores inconsistentes para ${sensorType}` }
+  }
+  if (!(limits.lower_warning_max <= limits.safe_min && limits.safe_min < limits.safe_max)) {
+    return { valid: false, message: `Rango seguro inconsistente para ${sensorType}` }
+  }
+  if (!(limits.safe_max <= limits.upper_warning_min && limits.upper_warning_min < limits.upper_danger_min && limits.upper_danger_min < limits.base_max)) {
+    return { valid: false, message: `Rangos superiores inconsistentes para ${sensorType}` }
+  }
+
+  return { valid: true, message: 'OK' }
+}
+
+const deriveLimits = (min, max) => {
+  const midpoint = (min + max) / 2
+  const L = midpoint - min
+  const R = max - midpoint
+
+  const lower_danger_max = +(min + 0.20 * L).toFixed(4)
+  const lower_warning_max = +(min + 0.50 * L).toFixed(4)
+  const safe_min = +lower_warning_max
+  const safe_max = +(midpoint + 0.50 * R).toFixed(4)
+  const upper_warning_min = +safe_max
+  const upper_danger_min = +(midpoint + 0.80 * R).toFixed(4)
+
+  return {
+    base_min: min,
+    base_max: max,
+    lower_danger_max,
+    lower_warning_max,
+    safe_min,
+    safe_max,
+    upper_warning_min,
+    upper_danger_min
+  }
+}
+
+const recalculateDerived = (sensorType) => {
+  try {
+    const s = editingLimits.value[sensorType]
+    const min = Number(s.base_min)
+    const max = Number(s.base_max)
+    if (isNaN(min) || isNaN(max)) return
+    if (min >= max) return
+    const d = deriveLimits(min, max)
+    // assign derived fields back into editingLimits
+    editingLimits.value[sensorType] = { ...editingLimits.value[sensorType], ...d }
+  } catch (e) {
+    console.error('Error recalculateDerived', e)
+  }
+}
+
+const normalizeSensorConfig = (cfg) => {
+  const out = { ph: {}, temperature: {}, conductivity: {} }
+  for (const k of ['ph', 'temperature', 'conductivity']) {
+    const s = cfg[k] || {}
+    if (typeof s.base_min === 'number' && typeof s.base_max === 'number') {
+      out[k] = { ...s }
+    } else if (Array.isArray(s.danger_ranges) && s.danger_ranges.length > 0 && typeof s.base_min === 'undefined') {
+      // infer base_min/base_max from danger ranges
+      const base_min = s.danger_ranges[0].min
+      const base_max = s.danger_ranges[s.danger_ranges.length - 1].max
+      out[k] = deriveLimits(Number(base_min), Number(base_max))
+    } else {
+      const base_min = (s.danger_min != null) ? s.danger_min : (s.base_min != null ? s.base_min : 0)
+      const base_max = (s.danger_max != null) ? s.danger_max : (s.base_max != null ? s.base_max : (base_min + 10))
+      out[k] = deriveLimits(Number(base_min), Number(base_max))
+    }
+  }
+  return out
+}
+
+const saveAllAlertConfigs = async () => {
+  try {
+    isCreatingUser.value = true
+    
+    console.log('[DEBUG] Iniciando guardado de TODAS las configuraciones de alertas')
+    
+    // Verificar permisos de admin
+    const userRole = String(localStorage.getItem('userRole') || '').toLowerCase()
+    const isAdminUser = userRole === 'admin' || userRole === 'administrador'
+
+    if (!isAdminUser) {
+      alert('⚠️ Debes ser administrador para guardar configuraciones de alertas')
+      return
+    }
+
+    // Validar todos los sensores
+    const sensors = ['ph', 'temperature', 'conductivity']
+    const errors = []
+    
+    for (const sensorType of sensors) {
+      const validation = validateAlertLimits(sensorType, editingLimits.value[sensorType])
+      if (!validation.valid) {
+        errors.push(`❌ ${sensorType.toUpperCase()}: ${validation.message}`)
+      }
+    }
+    
+    if (errors.length > 0) {
+      alert('Errores encontrados:\n\n' + errors.join('\n'))
+      return
+    }
+
+    // Derivar y copiar todos los valores a SENSOR_LIMITS en la nueva estructura
+    for (const sensorType of sensors) {
+      // Recalcular por si el usuario editó bases y no recalcó manualmente
+      recalculateDerived(sensorType)
+      const s = editingLimits.value[sensorType]
+      const base_min = Number(s.base_min)
+      const base_max = Number(s.base_max)
+      const lower_danger_max = Number(s.lower_danger_max)
+      const lower_warning_max = Number(s.lower_warning_max)
+      const safe_min = Number(s.safe_min)
+      const safe_max = Number(s.safe_max)
+      const upper_warning_min = Number(s.upper_warning_min)
+      const upper_danger_min = Number(s.upper_danger_min)
+
+      SENSOR_LIMITS.value[sensorType] = {
+        base_min,
+        base_max,
+        safe_min,
+        safe_max,
+        danger_ranges: [
+          { min: base_min, max: lower_danger_max },
+          { min: upper_danger_min, max: base_max }
+        ],
+        warning_ranges: [
+          { min: lower_danger_max, max: lower_warning_max },
+          { min: upper_warning_min, max: upper_danger_min }
+        ]
+      }
+    }
+    
+    // Guardar en localStorage
+    const config = { ...SENSOR_LIMITS.value }
+    localStorage.setItem('sensorLimits', JSON.stringify(config))
+    console.log('[DEBUG] ✅ Todas las configuraciones guardadas en localStorage:', config)
+
+    hasUnsavedChanges.value = false
+    lastSavedLimits = JSON.parse(JSON.stringify(SENSOR_LIMITS.value))
+    
+    alert('✅ Todos los límites de alertas guardados exitosamente')
+  } catch (error) {
+    console.error('Error en saveAllAlertConfigs:', error)
+    alert(`Error: ${error.message}`)
+  } finally {
+    isCreatingUser.value = false
+  }
+}
+
+const resetEditingLimits = () => {
+  if (confirm('¿Descartar todos los cambios no guardados?')) {
+    editingLimits.value = normalizeSensorConfig(JSON.parse(JSON.stringify(SENSOR_LIMITS.value)))
+    hasUnsavedChanges.value = false
+    console.log('[DEBUG] Cambios descartados, editingLimits restaurado')
+  }
+}
+
 const saveAlertConfig = async (sensorType) => {
   try {
     isCreatingUser.value = true
@@ -964,43 +1269,45 @@ const saveAlertConfig = async (sensorType) => {
     const userRole = String(localStorage.getItem('userRole') || '').toLowerCase()
     const isAdminUser = userRole === 'admin' || userRole === 'administrador'
 
-    console.log('[DEBUG] Rol del usuario:', userRole, '| Es admin:', isAdminUser)
-
     if (!isAdminUser) {
       alert('⚠️ Debes ser administrador para guardar configuraciones de alertas')
       return
     }
 
-    // Validar que los valores sean sensatos
-    const limits = editingLimits.value[sensorType]
-    
-    // Validar que cada rango tenga min < max
-    if (limits.danger_min >= limits.danger_max) {
-      alert(`❌ Error: El mínimo peligroso debe ser menor al máximo peligroso para ${sensorType}`)
-      return
-    }
-    if (limits.warning_min >= limits.warning_max) {
-      alert(`❌ Error: El mínimo de advertencia debe ser menor al máximo de advertencia para ${sensorType}`)
-      return
-    }
-    if (limits.safe_min >= limits.safe_max) {
-      alert(`❌ Error: El mínimo seguro debe ser menor al máximo seguro para ${sensorType}`)
-      return
-    }
-    
-    // Validar que los rangos no se superpongan
-    if (limits.danger_max > limits.warning_min) {
-      alert(`❌ Error: El rango peligroso y de advertencia se superponen para ${sensorType}`)
-      return
-    }
-    if (limits.warning_max > limits.safe_min) {
-      alert(`❌ Error: El rango de advertencia y seguro se superponen para ${sensorType}`)
+    // Validar
+    const validation = validateAlertLimits(sensorType, editingLimits.value[sensorType])
+    if (!validation.valid) {
+      alert(`❌ Error: ${validation.message}`)
       return
     }
 
-    // Copiar valores de editingLimits a SENSOR_LIMITS (aplicar cambios)
-    SENSOR_LIMITS.value[sensorType] = JSON.parse(JSON.stringify(limits))
-    console.log('[DEBUG] Valores copiados a SENSOR_LIMITS:', SENSOR_LIMITS.value[sensorType])
+    // Recalcular derivados y mapear a la nueva estructura antes de guardar
+    recalculateDerived(sensorType)
+    const s = editingLimits.value[sensorType]
+    const base_min = Number(s.base_min)
+    const base_max = Number(s.base_max)
+    const lower_danger_max = Number(s.lower_danger_max)
+    const lower_warning_max = Number(s.lower_warning_max)
+    const safe_min = Number(s.safe_min)
+    const safe_max = Number(s.safe_max)
+    const upper_warning_min = Number(s.upper_warning_min)
+    const upper_danger_min = Number(s.upper_danger_min)
+
+    SENSOR_LIMITS.value[sensorType] = {
+      base_min,
+      base_max,
+      safe_min,
+      safe_max,
+      danger_ranges: [
+        { min: base_min, max: lower_danger_max },
+        { min: upper_danger_min, max: base_max }
+      ],
+      warning_ranges: [
+        { min: lower_danger_max, max: lower_warning_max },
+        { min: upper_warning_min, max: upper_danger_min }
+      ]
+    }
+    console.log('[DEBUG] Valores guardados en SENSOR_LIMITS (derivados):', SENSOR_LIMITS.value[sensorType])
 
     // Guardar en localStorage (método principal)
     const config = { ...SENSOR_LIMITS.value }
@@ -1018,7 +1325,7 @@ const saveAlertConfig = async (sensorType) => {
   } finally {
     isCreatingUser.value = false
   }
-}}
+}
 
 const createNewUser = async () => {
   const sanitizedEmail = String(newUser.value.email || '').trim().toLowerCase()
@@ -1179,36 +1486,14 @@ onMounted(async () => {
   // Cargar lista de usuarios si es admin
   if (isAdmin.value) {
     await loadExistingUsers()
-    
-    // Cargar límites de alertas desde Supabase si es admin
-    try {
-      const currentUser = await getCurrentUser()
-      if (currentUser) {
-        const alertLimits = await getAlertLimitsByAdmin(currentUser.id)
-        if (alertLimits && alertLimits.length > 0) {
-          // Actualizar SENSOR_LIMITS con los valores de Supabase
-          alertLimits.forEach(limit => {
-            if (SENSOR_LIMITS.value[limit.sensor_type]) {
-              SENSOR_LIMITS.value[limit.sensor_type].min = limit.min_value
-              SENSOR_LIMITS.value[limit.sensor_type].max = limit.max_value
-              SENSOR_LIMITS.value[limit.sensor_type].safeMax = limit.safe_max
-            }
-          })
-          console.log('✅ Límites de alerta cargados desde Supabase:', SENSOR_LIMITS.value)
-        } else {
-          // Si no hay límites en Supabase, cargar del localStorage
-          const savedLimits = localStorage.getItem('sensorLimits')
-          if (savedLimits) {
-            SENSOR_LIMITS.value = JSON.parse(savedLimits)
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error al cargar límites de Supabase:', error)
-      // Fallback a localStorage
-      const savedLimits = localStorage.getItem('sensorLimits')
-      if (savedLimits) {
+    // Cargar límites del localStorage
+    const savedLimits = localStorage.getItem('sensorLimits')
+    if (savedLimits) {
+      try {
         SENSOR_LIMITS.value = JSON.parse(savedLimits)
+        console.log('✅ Límites de alerta cargados desde localStorage:', SENSOR_LIMITS.value)
+      } catch (e) {
+        console.error('Error al cargar límites guardados:', e)
       }
     }
   } else {
@@ -1466,6 +1751,14 @@ onUnmounted(() => {
   letter-spacing: 0.3px;
 }
 
+.section-subtitle {
+  margin: 0 0 20px 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: #666;
+  font-style: italic;
+}
+
 .info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1650,6 +1943,129 @@ onUnmounted(() => {
 
 .save-config-btn:hover {
   background: #45a049;
+}
+
+/* Estilos para el nuevo layout de Stacks */
+.config-stack-section {
+  margin-bottom: 40px;
+  padding: 20px;
+  background: #f9f9f9;
+  border-radius: 8px;
+  border: 2px solid #ddd;
+}
+
+.stack-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #ff9800;
+  color: #333;
+}
+
+.config-stack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.config-stack-card {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s;
+}
+
+.config-stack-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.config-stack-card h4 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 8px;
+}
+
+.config-stack-card.config-safe {
+  background: linear-gradient(135deg, #f0fdf4 0%, #f1fdf5 100%);
+  border-color: #4caf50;
+  border-left: 4px solid #4caf50;
+}
+
+.config-stack-card.config-safe h4 {
+  color: #2e7d32;
+}
+
+.stack-note {
+  font-size: 11px;
+  color: #999;
+  margin-top: 12px;
+  font-style: italic;
+  padding: 8px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  border-left: 2px solid #ccc;
+}
+
+.config-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 2px solid #ddd;
+}
+
+.save-all-btn {
+  background: linear-gradient(135deg, #4caf50, #45a049);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  transition: all 0.3s;
+  box-shadow: 0 2px 6px rgba(76, 175, 80, 0.3);
+}
+
+.save-all-btn:hover {
+  background: linear-gradient(135deg, #45a049, #3d8b40);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+}
+
+.save-all-btn:active {
+  transform: translateY(0);
+}
+
+.reset-btn {
+  background: #f57c00;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  transition: all 0.3s;
+  box-shadow: 0 2px 6px rgba(245, 124, 0, 0.3);
+}
+
+.reset-btn:hover {
+  background: #e65100;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 124, 0, 0.4);
+}
+
+.reset-btn:active {
+  transform: translateY(0);
 }
 
 .user-management-content {
@@ -2272,6 +2688,10 @@ html[data-theme='dark'] .section-title {
   color: #f1f5f9;
 }
 
+html[data-theme='dark'] .section-subtitle {
+  color: #cbd5e1;
+}
+
 html[data-theme='dark'] .info-card {
   background: #2e3240;
   border-left-color: #4b5563;
@@ -2423,6 +2843,66 @@ html[data-theme='dark'] .save-config-btn {
 
 html[data-theme='dark'] .save-config-btn:hover {
   background: #16a34a;
+}
+
+/* Estilos oscuros para stacks */
+html[data-theme='dark'] .config-stack-section {
+  background: #1a1d26;
+  border-color: #3d4254;
+}
+
+html[data-theme='dark'] .stack-title {
+  color: #e2e8f0;
+  border-bottom-color: #fb923c;
+}
+
+html[data-theme='dark'] .config-stack-card {
+  background: #2e3240;
+  border-color: #4b5563;
+}
+
+html[data-theme='dark'] .config-stack-card h4 {
+  color: #e2e8f0;
+  border-bottom-color: #3d4254;
+}
+
+html[data-theme='dark'] .config-stack-card.config-safe {
+  background: rgba(76, 175, 80, 0.1);
+  border-color: #4caf50;
+}
+
+html[data-theme='dark'] .config-stack-card.config-safe h4 {
+  color: #86efac;
+}
+
+html[data-theme='dark'] .stack-note {
+  color: #94a3b8;
+  background: rgba(0, 0, 0, 0.3);
+  border-left-color: #64748b;
+}
+
+html[data-theme='dark'] .config-actions {
+  border-top-color: #3d4254;
+}
+
+html[data-theme='dark'] .save-all-btn {
+  background: linear-gradient(135deg, #15803d, #166534);
+  box-shadow: 0 2px 6px rgba(34, 197, 94, 0.2);
+}
+
+html[data-theme='dark'] .save-all-btn:hover {
+  background: linear-gradient(135deg, #166534, #15803d);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+html[data-theme='dark'] .reset-btn {
+  background: #b45309;
+  box-shadow: 0 2px 6px rgba(180, 83, 9, 0.2);
+}
+
+html[data-theme='dark'] .reset-btn:hover {
+  background: #d97706;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3);
 }
 
 html[data-theme='dark'] .user-creation-form {
