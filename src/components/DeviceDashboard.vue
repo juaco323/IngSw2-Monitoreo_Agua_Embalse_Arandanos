@@ -61,6 +61,16 @@
             </div>
           </div>
           <div class="info-card">
+            <div class="info-card-label">Estado de Batería</div>
+            <div class="info-card-value battery-card">
+              <BatteryIndicator 
+                :level="batteryLevel" 
+                size="medium" 
+                :show-text="true"
+              />
+            </div>
+          </div>
+          <div class="info-card">
             <div class="info-card-label">Rol de Usuario</div>
             <div class="info-card-value" :class="isAdmin ? 'admin-role' : 'user-role'">
               {{ isAdmin ? '👨‍💼 Administrador' : '👤 Empleado' }}
@@ -554,6 +564,7 @@ import { useRouter } from 'vue-router'
 import DeviceList from './DeviceList.vue'
 import ThemeToggleButton from './ThemeToggleButton.vue'
 import SensorCard from './SensorCard.vue'
+import BatteryIndicator from './BatteryIndicator.vue'
 import { checkAndSendAlerts } from '../services/AlertService.js'
 import { fetchDashboardData, fetchSensorHistory } from '../services/ArduinoConfig.js'
 import { createUserInSupabase, getAllUsersMerged, deleteUserFromSupabase, saveAlertLimits, getAlertLimitsByAdmin, getCurrentUser } from '../services/SupabaseAuthService.js'
@@ -631,6 +642,11 @@ const selectedDevice = computed(() => {
     status: 'disconnected',
     sensors: { ph: 0, temperature: 0, conductivity: 0 }
   }
+})
+
+const batteryLevel = computed(() => {
+  const level = selectedDevice.value?.battery || selectedDevice.value?.bateria
+  return typeof level === 'number' ? Math.min(100, Math.max(0, level)) : 100
 })
 
 const sensors = computed(() => ({
@@ -896,6 +912,8 @@ const loadDashboardFromApi = async () => {
       temperature: Number(dashboard.temperature.value),
       conductivity: Number(dashboard.conductivity.value)
     },
+    battery: dashboard.battery || 100,
+    bateria: dashboard.battery || 100,
     dataSource: dataSource
   }
   lastSync.value = formatLastSync(dashboard.metadata.lastSync)
@@ -1500,6 +1518,13 @@ onUnmounted(() => {
 
 .info-card-value.disconnected {
   color: #c62828;
+}
+
+.info-card-value.battery-card {
+  font-weight: normal;
+  color: inherit;
+  display: flex;
+  align-items: center;
 }
 
 .info-card-value.admin-role {
@@ -2291,6 +2316,10 @@ html[data-theme='dark'] .info-card-value.connected {
 
 html[data-theme='dark'] .info-card-value.disconnected {
   color: #fca5a5;
+}
+
+html[data-theme='dark'] .info-card-value.battery-card {
+  color: inherit;
 }
 
 html[data-theme='dark'] .info-card-value.admin-role {

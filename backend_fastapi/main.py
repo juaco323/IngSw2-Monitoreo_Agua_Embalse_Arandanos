@@ -286,6 +286,7 @@ class DashboardResponse(BaseModel):
     temperature: SensorData
     conductivity: SensorData
     metadata: Metadata
+    battery: int = Field(default=100, ge=0, le=100, description="Nivel de batería del dispositivo en porcentaje")
 
 
 class AlertRecord(BaseModel):
@@ -558,6 +559,7 @@ def update_dashboard_state_from_mongodb() -> DashboardResponse | None:
             uptime=uptime_seconds,
             activeSensors=3 if connected else 0,
         ),
+        battery=reading.get("bateria", 100),
     )
     logger.info(f"Dashboard actualizado desde MongoDB. Arduino conectado: {connected}")
     return dashboard_state
@@ -972,6 +974,7 @@ def get_dashboard_data() -> DashboardResponse:
                 uptime=0,
                 activeSensors=3,
             ),
+            battery=simulated_payload.bateria,
         )
         logger.info("Devolviendo datos simulados (fallback)")
         log_service.log(
