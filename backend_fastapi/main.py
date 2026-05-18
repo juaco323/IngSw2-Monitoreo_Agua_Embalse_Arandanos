@@ -81,6 +81,16 @@ def configure_logging() -> None:
     logger.addHandler(stream_handler)
     logger.addHandler(file_handler)
 
+    # Also write logs to a project-level logsSistema folder at repo root
+    repo_root = Path(__file__).resolve().parent.parent
+    sistema_dir = repo_root / "logsSistema"
+    os.makedirs(sistema_dir, exist_ok=True)
+    sistema_log_file = sistema_dir / "app.log"
+    sistema_handler = RotatingFileHandler(str(sistema_log_file), maxBytes=16384, backupCount=20, encoding="utf-8")
+    sistema_handler.setLevel(logging.INFO)
+    sistema_handler.setFormatter(formatter)
+    logger.addHandler(sistema_handler)
+
 
 configure_logging()
 

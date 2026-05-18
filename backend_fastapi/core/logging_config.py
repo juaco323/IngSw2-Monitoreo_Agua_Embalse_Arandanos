@@ -14,6 +14,12 @@ def setup_fallback_logging() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     fallback_path = log_dir / "fallback.log"
 
+    # Also write fallback logs to a project-level logsSistema folder
+    repo_root = Path(__file__).resolve().parent.parent
+    sistema_dir = repo_root / "logsSistema"
+    sistema_dir.mkdir(parents=True, exist_ok=True)
+    fallback_sistema_path = sistema_dir / "fallback.log"
+
     max_bytes = int(os.getenv("LOG_FILE_MAX_BYTES", str(5 * 1024 * 1024)))
     backup_count = int(os.getenv("LOG_FILE_BACKUP_COUNT", "5"))
 
@@ -22,10 +28,17 @@ def setup_fallback_logging() -> None:
     )
     handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 
+    # handler for project-level logsSistema
+    handler_sistema = RotatingFileHandler(
+        fallback_sistema_path, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
+    )
+    handler_sistema.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+
     _FALLBACK_LOGGER = logging.getLogger("app.fallback")
     _FALLBACK_LOGGER.setLevel(logging.INFO)
     _FALLBACK_LOGGER.handlers.clear()
     _FALLBACK_LOGGER.addHandler(handler)
+    _FALLBACK_LOGGER.addHandler(handler_sistema)
 
 
 def write_fallback_record(**payload: Any) -> None:
