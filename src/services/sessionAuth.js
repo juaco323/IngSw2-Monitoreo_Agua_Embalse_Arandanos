@@ -1,3 +1,5 @@
+import { createCorrelationId, appLogger } from '../utils/logger.js'
+
 /**
  * Access JWT: 30 min solo administrador; empleado con validez mayor (config en API).
  * Refresh JWT: administrador y empleado; se usa en POST /api/auth/refresh.
@@ -92,11 +94,16 @@ export function isAdminRole(role) {
 export async function apiLogin(email, password) {
   const res = await fetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'X-Correlation-Id': createCorrelationId(),
+    },
     body: JSON.stringify({ email, password }),
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) {
+    appLogger.warn('Login fallido', { status: res.status, correlationId: res.headers.get('x-correlation-id') })
     const msg = body.message || body.detail || 'No se pudo iniciar sesión'
     throw new Error(typeof msg === 'string' ? msg : 'Credenciales inválidas')
   }

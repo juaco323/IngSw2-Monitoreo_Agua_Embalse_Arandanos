@@ -70,8 +70,11 @@ services:
       MAILERSEND_FROM_EMAIL: ${MAILERSEND_FROM_EMAIL:-}
       MAILERSEND_FROM_NAME: ${MAILERSEND_FROM_NAME:-Monitoreo Embalse Arandanos}
       MAILERSEND_TO_EMAILS: ${MAILERSEND_TO_EMAILS:-}
+      SUPABASE_DB_URL: ${SUPABASE_DB_URL:-}
+      LOG_DIR: logs
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      # Dockerfile expone uvicorn en puerto 80 dentro del contenedor
+      - "${BACKEND_PORT:-8000}:80"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -91,7 +94,8 @@ services:
     container_name: frontend-arandanos
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-5173}:80"
+      # nginx.conf escucha en 8000 dentro del contenedor (ver Dockerfile.frontend)
+      - "${FRONTEND_PORT:-5173}:8000"
     depends_on:
       - backend
     networks:

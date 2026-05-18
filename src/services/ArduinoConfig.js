@@ -87,7 +87,8 @@ const buildSimulatedDashboard = () => {
       lastSync: nowIso,
       uptime: Math.floor((Date.now() - SIMULATION_START_TIME) / 1000),
       activeSensors: 3
-    }
+    },
+    battery: Math.min(100, Math.max(20, 75 + Math.random() * 20))
   }
 }
 

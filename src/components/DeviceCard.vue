@@ -15,6 +15,9 @@
           {{ device.status === 'connected' ? 'Conectado' : 'Desconectado' }}
         </span>
       </div>
+      <div class="device-battery" v-if="device.battery !== undefined || device.bateria !== undefined">
+        <BatteryIndicator :level="batteryLevel" size="small" />
+      </div>
     </div>
 
     <div class="device-body">
@@ -38,6 +41,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import BatteryIndicator from './BatteryIndicator.vue'
 
 const props = defineProps({
   device: {
@@ -56,6 +60,11 @@ const formatSensorValue = (value) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed.toFixed(2) : '--'
 }
+
+const batteryLevel = computed(() => {
+  const level = props.device?.battery || props.device?.bateria
+  return typeof level === 'number' ? level : 100
+})
 
 const normalizedSensors = computed(() => {
   const sensors = props.device?.sensors
@@ -134,6 +143,12 @@ const normalizedSensors = computed(() => {
 
 .device-status {
   flex-shrink: 0;
+}
+
+.device-battery {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .status-badge {

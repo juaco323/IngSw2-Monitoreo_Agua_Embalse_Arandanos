@@ -14,6 +14,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 
+try:
+    from core.log_origins import LogLevel
+    from core.log_service import log_service
+except ImportError:
+    log_service = None
+    LogLevel = None
+
 router = APIRouter()
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-cambiar-en-produccion-embalse-arandanos")
@@ -109,10 +116,22 @@ def require_bearer(
 @router.post("/login")
 def login(body: LoginBody):
     if body.password != AUTH_DEMO_PASSWORD:
+        if log_service:
+            log_service.log_login(
+                LogLevel.WARN, "Intento de login fallido",
+                component="auth.jwt",
+                details={"event": "login_failed"},
+            )
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     email = body.email.strip().lower()
     role = _resolve_role(email)
+    if log_service:
+        log_service.log_login(
+            LogLevel.INFO, "Login exitoso",
+            component="auth.jwt",
+            details={"event": "login", "role": role, "email_domain": email.split("@")[-1]},
+        )
     access_token, access_expires = create_access_token(email=email, role=role)
     refresh_token, refresh_expires = create_refresh_token(email=email, role=role)
     return {
