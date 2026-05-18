@@ -1018,7 +1018,7 @@ const saveAlertConfig = async (sensorType) => {
   } finally {
     isCreatingUser.value = false
   }
-}}
+}
 
 const createNewUser = async () => {
   const sanitizedEmail = String(newUser.value.email || '').trim().toLowerCase()

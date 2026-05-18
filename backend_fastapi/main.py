@@ -84,6 +84,15 @@ def configure_logging() -> None:
 
 configure_logging()
 
+from core.logging_config import setup_fallback_logging
+from core.log_service import log_service
+from core.log_origins import LogLevel, LogOrigin
+from core.middleware import CorrelationIdMiddleware
+from logs_router import router as logs_router
+
+setup_fallback_logging()
+log_service.log(LogOrigin.DASHBOARD, LogLevel.INFO, "Iniciando API", component="system.startup")
+
 # ============================================================================
 # CONFIGURACIÓN MONGODB
 # ============================================================================
@@ -103,6 +112,11 @@ try:
     mongo_client.admin.command('ping')
     db = mongo_client[MONGODB_DB]
     logger.info("Conexion a MongoDB establecida")
+    log_service.log_db(
+        LogLevel.INFO, "Conexión a MongoDB establecida",
+        component="mongo.client", operation="connect", query_type="read",
+        table_name="sensor_readings",
+    )
 except Exception as e:
     logger.warning(f"No se pudo conectar a MongoDB con SSL verificado: {e}")
     try:
@@ -119,8 +133,17 @@ except Exception as e:
         mongo_client.admin.command('ping')
         db = mongo_client[MONGODB_DB]
         logger.info("Conexión a MongoDB establecida (con SSL deshabilitado)")
+        log_service.log_db(
+            LogLevel.WARN, "MongoDB conectado sin verificación SSL",
+            component="mongo.client", operation="connect", query_type="read",
+        )
     except Exception as e2:
         logger.warning(f"No se pudo conectar a MongoDB. Usando almacenamiento en memoria. Error: {e2}")
+        log_service.log_db(
+            LogLevel.FATAL, f"MongoDB no disponible: {e2}",
+            component="mongo.client", operation="connect", query_type="read",
+            details={"error_type": type(e2).__name__},
+        )
         mongo_client = None
         db = None
 
@@ -143,6 +166,7 @@ app.add_middleware(
     allow_methods=["*"],  # Permitir todos los métodos (GET, POST, OPTIONS, etc)
     allow_headers=["*"],
 )
+app.add_middleware(CorrelationIdMiddleware)
 
 try:
     from .auth_jwt import router as auth_jwt_router
@@ -150,6 +174,7 @@ except ImportError:
     from auth_jwt import router as auth_jwt_router
 
 app.include_router(auth_jwt_router, prefix="/api/auth", tags=["auth"])
+app.include_router(logs_router)
 
 
 @app.exception_handler(HTTPException)
@@ -168,6 +193,12 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error processing request", exc_info=exc)
+    log_service.log(
+        LogOrigin.DASHBOARD, LogLevel.FATAL, f"Excepción no controlada: {exc}",
+        component="api.exception",
+        details={"path": request.url.path, "error_type": type(exc).__name__},
+        correlation_id=getattr(request.state, "correlation_id", None),
+    )
     if API_PATH_PREFIX in request.url.path:
         return JSONResponse(
             status_code=500,
@@ -325,6 +356,10 @@ def save_sensor_payload_to_mongodb(payload: SensorMongoPayload) -> Optional[str]
     """Guardar documento con el esquema solicitado por el usuario."""
     if db is None:
         logger.warning("MongoDB no está disponible")
+        log_service.log_db(
+            LogLevel.WARN, "Intento de guardar lectura sin MongoDB",
+            component="mongo.write", operation="insert", table_name="sensor_readings",
+        )
         return None
 
     try:
@@ -346,9 +381,20 @@ def save_sensor_payload_to_mongodb(payload: SensorMongoPayload) -> Optional[str]
 
         result = collection.insert_one(document)
         logger.info(f"Lectura guardada en MongoDB con ID: {result.inserted_id}")
+        log_service.log_db(
+            LogLevel.INFO, f"Lectura guardada dispositivo={payload.arduino_id}",
+            component="mongo.write", operation="insert", table_name="sensor_readings",
+            query_type="write",
+            details={"arduino_id": payload.arduino_id, "mongo_id": str(result.inserted_id)},
+        )
         return str(result.inserted_id)
     except Exception as e:
         logger.error(f"Error guardando en MongoDB: {e}")
+        log_service.log_db(
+            LogLevel.FATAL, f"Error insertando lectura: {e}",
+            component="mongo.write", operation="insert", table_name="sensor_readings",
+            details={"error_type": type(e).__name__},
+        )
         return None
 
 
@@ -581,6 +627,10 @@ def send_mailersend_notification(device_name: str, sensor: str, medicion: str, n
             f"MailerSend no configurado. API Token: {bool(config.api_token)}, "
             f"From Email: {bool(config.from_email)}, To Emails: {bool(config.to_emails)}"
         )
+        log_service.log_mailersend(
+            LogLevel.WARN, "MailerSend no configurado",
+            details={"has_token": bool(config.api_token), "has_from": bool(config.from_email)},
+        )
         return
 
     logger.info(f"Enviando alerta por email: {device_name} - {sensor}")
@@ -640,10 +690,19 @@ def send_mailersend_notification(device_name: str, sensor: str, medicion: str, n
             )
         except requests.RequestException as exc:
             logger.error(f"Error enviando email a lote {recipients_batch}: {exc}")
+            log_service.log_mailersend(
+                LogLevel.WARN, f"Error de red MailerSend: {exc}",
+                recipient_count=len(recipients_batch),
+            )
             continue
 
         if response.status_code in [200, 202]:
             logger.info(f"Email enviado exitosamente a lote {recipients_batch}")
+            log_service.log_mailersend(
+                LogLevel.INFO, "Correo de alerta enviado",
+                http_status=response.status_code,
+                recipient_count=len(recipients_batch),
+            )
             continue
 
         if is_mailersend_recipient_limit_error(response) and len(recipients_batch) > 1:
@@ -676,6 +735,13 @@ def send_mailersend_notification(device_name: str, sensor: str, medicion: str, n
             recipients_batch,
             response.status_code,
             response.text,
+        )
+        log_service.log_mailersend(
+            LogLevel.WARN if response.status_code < 500 else LogLevel.FATAL,
+            "Respuesta MailerSend no exitosa",
+            http_status=response.status_code,
+            recipient_count=len(recipients_batch),
+            details={"batch": recipients_batch},
         )
 
 
@@ -908,6 +974,15 @@ def get_dashboard_data() -> DashboardResponse:
             ),
         )
         logger.info("Devolviendo datos simulados (fallback)")
+        log_service.log(
+            LogOrigin.DASHBOARD, LogLevel.WARN, "Dashboard con datos simulados (fallback)",
+            component="api.dashboard", details={"data_source": "simulated"},
+        )
+    else:
+        log_service.log(
+            LogOrigin.DASHBOARD, LogLevel.INFO, "Dashboard generado desde MongoDB",
+            component="api.dashboard", details={"data_source": "real"},
+        )
     return state
 
 
@@ -1085,6 +1160,13 @@ def get_latest_reading():
 def get_readings_history(limit: int = 100):
     """Obtener historial de lecturas de sensores (últimas N lecturas)"""
     readings = get_sensor_readings_history(limit)
+    log_service.log(
+        LogOrigin.REGISTRO_HISTORICO,
+        LogLevel.WARN if not readings else LogLevel.INFO,
+        f"Historial de sensores consultado (n={len(readings)})",
+        component="api.sensors.history",
+        details={"limit": limit, "count": len(readings)},
+    )
     return [SensorDataResponse(**r) for r in readings]
 
 
@@ -1126,10 +1208,24 @@ async def create_alert(payload: AlertCreate) -> AlertRecord:
                 time=now.strftime("%H:%M:%S"),
             )
             result = await send_sensor_alert(telegram_alert)
+            sent = int(result.get("sent", 0) or 0)
+            failed = int(result.get("failed", 0) or 0)
             if result.get("status") == "ok":
-                logger.info(f"[TELEGRAM] Alerta enviada a {result.get('sent', 0)} chats")
+                logger.info(f"[TELEGRAM] Alerta enviada a {sent} chats")
+            level = LogLevel.INFO if failed == 0 else LogLevel.WARN
+            if sent == 0 and failed > 0:
+                level = LogLevel.FATAL
+            log_service.log_telegram(
+                level, "Alerta de sensor enviada por Telegram",
+                sent_count=sent, failed_count=failed,
+                details={"device": device_name, "sensor": payload.sensor},
+            )
         except Exception as e:
             logger.error(f"[TELEGRAM] Error enviando alerta: {e}")
+            log_service.log_telegram(
+                LogLevel.FATAL, f"Error enviando alerta Telegram: {e}",
+                details={"error_type": type(e).__name__},
+            )
 
     alerts_store.append(new_alert)
     return new_alert

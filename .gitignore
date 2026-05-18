@@ -29,7 +29,22 @@ __pycache__/
 venv/
 .venv/
 
-# Secrets and local environment
+# Secrets, credenciales y entorno local
 .env
 .env.*
 !.env.example
+backend_fastapi/.env
+backend_fastapi/.env.local
+*.credentials
+*credenciales*
+**/CREDENCIALES*.md
+**/credenciales*.md
+docs/CREDENCIALES_EQUIPO.md
+secrets/
+*.pem
+*.key
+*.p12
+
+# Logs locales del backend (pueden contener datos de sesión)
+backend_fastapi/logs/
+!backend_fastapi/logs/.gitkeep
