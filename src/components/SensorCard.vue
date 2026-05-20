@@ -16,15 +16,22 @@
 
     <div class="sensor-info">
       <div class="info-row">
-        <span class="info-label">Rango verde:</span>
-        <span class="info-value">{{ normalizedThresholds.warningLow.toFixed(1) }} - {{ normalizedThresholds.warningHigh.toFixed(1) }} {{ unit }}</span>
+        <span class="info-label">🔴 Zona roja:</span>
+        <span class="info-value">
+          {{ normalizedThresholds.dangerMin.toFixed(1) }} - {{ normalizedThresholds.dangerMax.toFixed(1) }}
+          / {{ normalizedThresholds.dangerMinSup.toFixed(1) }} - {{ normalizedThresholds.dangerMaxSup.toFixed(1) }} {{ unit }}
+        </span>
       </div>
       <div class="info-row">
-        <span class="info-label">Zona amarilla:</span>
+        <span class="info-label">🟠 Zona amarilla:</span>
         <span class="info-value">
-          {{ normalizedThresholds.dangerLow.toFixed(1) }} - {{ normalizedThresholds.warningLow.toFixed(1) }}
-          / {{ normalizedThresholds.warningHigh.toFixed(1) }} - {{ normalizedThresholds.dangerHigh.toFixed(1) }} {{ unit }}
+          {{ normalizedThresholds.warningMin.toFixed(1) }} - {{ normalizedThresholds.warningMax.toFixed(1) }}
+          / {{ normalizedThresholds.warningMinSup.toFixed(1) }} - {{ normalizedThresholds.warningMaxSup.toFixed(1) }} {{ unit }}
         </span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">🟢 Rango verde:</span>
+        <span class="info-value">{{ normalizedThresholds.safeMin.toFixed(1) }} - {{ normalizedThresholds.safeMax.toFixed(1) }} {{ unit }}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Última actualización:</span>
@@ -78,44 +85,58 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 const buildFallbackThresholds = () => {
   const range = props.max - props.min
   return {
-    dangerLow: props.min + range * 0.15,
-    warningLow: props.min + range * 0.35,
-    warningHigh: props.min + range * 0.65,
-    dangerHigh: props.min + range * 0.85
+    dangerMin: props.min,
+    dangerMax: props.min + range * 0.15,
+    warningMin: props.min + range * 0.15,
+    warningMax: props.min + range * 0.35,
+    safeMin: props.min + range * 0.35,
+    safeMax: props.min + range * 0.65,
+    warningMinSup: props.min + range * 0.65,
+    warningMaxSup: props.min + range * 0.85,
+    dangerMinSup: props.min + range * 0.85,
+    dangerMaxSup: props.max
   }
 }
 
 const normalizedThresholds = computed(() => {
   const fallback = buildFallbackThresholds()
 
-  const values = [
-    Number(props.thresholds?.dangerLow ?? fallback.dangerLow),
-    Number(props.thresholds?.warningLow ?? fallback.warningLow),
-    Number(props.thresholds?.warningHigh ?? fallback.warningHigh),
-    Number(props.thresholds?.dangerHigh ?? fallback.dangerHigh)
-  ]
-    .map((value) => Number.isFinite(value) ? clamp(value, props.min, props.max) : props.min)
-    .sort((first, second) => first - second)
-
-  return {
-    dangerLow: values[0],
-    warningLow: values[1],
-    warningHigh: values[2],
-    dangerHigh: values[3]
+  const values = {
+    dangerMin: Number(props.thresholds?.dangerMin ?? fallback.dangerMin),
+    dangerMax: Number(props.thresholds?.dangerMax ?? fallback.dangerMax),
+    warningMin: Number(props.thresholds?.warningMin ?? fallback.warningMin),
+    warningMax: Number(props.thresholds?.warningMax ?? fallback.warningMax),
+    safeMin: Number(props.thresholds?.safeMin ?? fallback.safeMin),
+    safeMax: Number(props.thresholds?.safeMax ?? fallback.safeMax),
+    warningMinSup: Number(props.thresholds?.warningMinSup ?? fallback.warningMinSup),
+    warningMaxSup: Number(props.thresholds?.warningMaxSup ?? fallback.warningMaxSup),
+    dangerMinSup: Number(props.thresholds?.dangerMinSup ?? fallback.dangerMinSup),
+    dangerMaxSup: Number(props.thresholds?.dangerMaxSup ?? fallback.dangerMaxSup)
   }
+
+  // Clamp all values to the min/max range and ensure they are valid numbers
+  Object.keys(values).forEach((key) => {
+    values[key] = Number.isFinite(values[key]) ? clamp(values[key], props.min, props.max) : props.min
+  })
+
+  return values
 })
 
 const statusClass = computed(() => {
   const currentValue = clamp(props.value, props.min, props.max)
-  if (currentValue <= normalizedThresholds.value.dangerLow || currentValue >= normalizedThresholds.value.dangerHigh) return 'danger'
-  if (currentValue <= normalizedThresholds.value.warningLow || currentValue >= normalizedThresholds.value.warningHigh) return 'warning'
+  const t = normalizedThresholds.value
+  
+  if (currentValue <= t.dangerMax || currentValue >= t.dangerMinSup) return 'danger'
+  if (currentValue <= t.warningMax || currentValue >= t.warningMinSup) return 'warning'
   return 'safe'
 })
 
 const statusText = computed(() => {
   const currentValue = clamp(props.value, props.min, props.max)
-  if (currentValue <= normalizedThresholds.value.dangerLow || currentValue >= normalizedThresholds.value.dangerHigh) return 'Peligroso'
-  if (currentValue <= normalizedThresholds.value.warningLow || currentValue >= normalizedThresholds.value.warningHigh) return 'Advertencia'
+  const t = normalizedThresholds.value
+  
+  if (currentValue <= t.dangerMax || currentValue >= t.dangerMinSup) return 'Peligroso'
+  if (currentValue <= t.warningMax || currentValue >= t.warningMinSup) return 'Advertencia'
   return 'Estable'
 })
 </script>

@@ -83,27 +83,27 @@
         <SensorCard
           sensor-name="pH"
           :value="sensors.ph.value"
-          :min="sensorLimits.ph.safe_min"
-          :max="sensorLimits.ph.safe_max"
-          :safe-max="sensorLimits.ph.safe_max"
+          :min="sensorThresholds.ph.dangerMin"
+          :max="sensorThresholds.ph.dangerMaxSup"
+          :thresholds="sensorThresholds.ph"
           unit="pH"
           :last-updated="lastSync"
         />
         <SensorCard
           sensor-name="Temperatura"
           :value="sensors.temperature.value"
-          :min="sensorLimits.temperature.safe_min"
-          :max="sensorLimits.temperature.safe_max"
-          :safe-max="sensorLimits.temperature.safe_max"
+          :min="sensorThresholds.temperature.dangerMin"
+          :max="sensorThresholds.temperature.dangerMaxSup"
+          :thresholds="sensorThresholds.temperature"
           unit="°C"
           :last-updated="lastSync"
         />
         <SensorCard
           sensor-name="Conductividad Eléctrica"
           :value="sensors.conductivity.value"
-          :min="sensorLimits.conductivity.safe_min"
-          :max="sensorLimits.conductivity.safe_max"
-          :safe-max="sensorLimits.conductivity.safe_max"
+          :min="sensorThresholds.conductivity.dangerMin"
+          :max="sensorThresholds.conductivity.dangerMaxSup"
+          :thresholds="sensorThresholds.conductivity"
           unit="µS/cm"
           :last-updated="lastSync"
         />
@@ -136,7 +136,7 @@
                   <td>{{ alert.ph }}</td>
                   <td>{{ alert.temperature }}</td>
                   <td>{{ alert.conductivity }}</td>
-                  <td>{{ alert.battery }}%</td>
+                  <td>{{ Math.round(alert.battery) }}%</td>
                   <td>{{ alert.date }}</td>
                   <td>{{ alert.time }}</td>
                   <td>{{ alert.telegramStatus }}</td>
@@ -712,6 +712,47 @@ const sensorLimits = computed(() => ({
   conductivity: {
     safe_min: SENSOR_LIMITS.value?.conductivity?.safe_min ?? 500,
     safe_max: SENSOR_LIMITS.value?.conductivity?.safe_max ?? 2000
+  }
+}))
+
+// Computed properties for sensor thresholds (used by SensorCard for display)
+// Passes all 5 zone boundaries for complete visualization
+const sensorThresholds = computed(() => ({
+  ph: {
+    dangerMin: SENSOR_LIMITS.value?.ph?.danger_min,
+    dangerMax: SENSOR_LIMITS.value?.ph?.danger_max,
+    warningMin: SENSOR_LIMITS.value?.ph?.warning_min,
+    warningMax: SENSOR_LIMITS.value?.ph?.warning_max,
+    safeMin: SENSOR_LIMITS.value?.ph?.safe_min,
+    safeMax: SENSOR_LIMITS.value?.ph?.safe_max,
+    warningMinSup: SENSOR_LIMITS.value?.ph?.warning_min_sup,
+    warningMaxSup: SENSOR_LIMITS.value?.ph?.warning_max_sup,
+    dangerMinSup: SENSOR_LIMITS.value?.ph?.danger_min_sup,
+    dangerMaxSup: SENSOR_LIMITS.value?.ph?.danger_max_sup
+  },
+  temperature: {
+    dangerMin: SENSOR_LIMITS.value?.temperature?.danger_min,
+    dangerMax: SENSOR_LIMITS.value?.temperature?.danger_max,
+    warningMin: SENSOR_LIMITS.value?.temperature?.warning_min,
+    warningMax: SENSOR_LIMITS.value?.temperature?.warning_max,
+    safeMin: SENSOR_LIMITS.value?.temperature?.safe_min,
+    safeMax: SENSOR_LIMITS.value?.temperature?.safe_max,
+    warningMinSup: SENSOR_LIMITS.value?.temperature?.warning_min_sup,
+    warningMaxSup: SENSOR_LIMITS.value?.temperature?.warning_max_sup,
+    dangerMinSup: SENSOR_LIMITS.value?.temperature?.danger_min_sup,
+    dangerMaxSup: SENSOR_LIMITS.value?.temperature?.danger_max_sup
+  },
+  conductivity: {
+    dangerMin: SENSOR_LIMITS.value?.conductivity?.danger_min,
+    dangerMax: SENSOR_LIMITS.value?.conductivity?.danger_max,
+    warningMin: SENSOR_LIMITS.value?.conductivity?.warning_min,
+    warningMax: SENSOR_LIMITS.value?.conductivity?.warning_max,
+    safeMin: SENSOR_LIMITS.value?.conductivity?.safe_min,
+    safeMax: SENSOR_LIMITS.value?.conductivity?.safe_max,
+    warningMinSup: SENSOR_LIMITS.value?.conductivity?.warning_min_sup,
+    warningMaxSup: SENSOR_LIMITS.value?.conductivity?.warning_max_sup,
+    dangerMinSup: SENSOR_LIMITS.value?.conductivity?.danger_min_sup,
+    dangerMaxSup: SENSOR_LIMITS.value?.conductivity?.danger_max_sup
   }
 }))
 
@@ -1674,6 +1715,7 @@ onUnmounted(() => {
   color: inherit;
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 .info-card-value.admin-role {
