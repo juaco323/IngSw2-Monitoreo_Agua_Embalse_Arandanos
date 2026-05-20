@@ -83,27 +83,27 @@
         <SensorCard
           sensor-name="pH"
           :value="sensors.ph.value"
-          :min="SENSOR_LIMITS.value.ph.safe_min"
-          :max="SENSOR_LIMITS.value.ph.safe_max"
-          :safe-max="SENSOR_LIMITS.value.ph.safe_max"
+          :min="sensorLimits.ph.safe_min"
+          :max="sensorLimits.ph.safe_max"
+          :safe-max="sensorLimits.ph.safe_max"
           unit="pH"
           :last-updated="lastSync"
         />
         <SensorCard
           sensor-name="Temperatura"
           :value="sensors.temperature.value"
-          :min="SENSOR_LIMITS.value.temperature.safe_min"
-          :max="SENSOR_LIMITS.value.temperature.safe_max"
-          :safe-max="SENSOR_LIMITS.value.temperature.safe_max"
+          :min="sensorLimits.temperature.safe_min"
+          :max="sensorLimits.temperature.safe_max"
+          :safe-max="sensorLimits.temperature.safe_max"
           unit="°C"
           :last-updated="lastSync"
         />
         <SensorCard
           sensor-name="Conductividad Eléctrica"
           :value="sensors.conductivity.value"
-          :min="SENSOR_LIMITS.value.conductivity.safe_min"
-          :max="SENSOR_LIMITS.value.conductivity.safe_max"
-          :safe-max="SENSOR_LIMITS.value.conductivity.safe_max"
+          :min="sensorLimits.conductivity.safe_min"
+          :max="sensorLimits.conductivity.safe_max"
+          :safe-max="sensorLimits.conductivity.safe_max"
           unit="µS/cm"
           :last-updated="lastSync"
         />
@@ -655,6 +655,22 @@ const sensors = computed(() => ({
   conductivity: { value: selectedDevice.value.sensors.conductivity }
 }))
 
+// Computed properties for sensor limits with safe defaults
+const sensorLimits = computed(() => ({
+  ph: {
+    safe_min: SENSOR_LIMITS.value?.ph?.safe_min ?? 6.5,
+    safe_max: SENSOR_LIMITS.value?.ph?.safe_max ?? 8.5
+  },
+  temperature: {
+    safe_min: SENSOR_LIMITS.value?.temperature?.safe_min ?? 15,
+    safe_max: SENSOR_LIMITS.value?.temperature?.safe_max ?? 30
+  },
+  conductivity: {
+    safe_min: SENSOR_LIMITS.value?.conductivity?.safe_min ?? 500,
+    safe_max: SENSOR_LIMITS.value?.conductivity?.safe_max ?? 2000
+  }
+}))
+
 const historyRecords = ref([])
 const historyFilters = ref({
   deviceId: 'all',
@@ -670,11 +686,12 @@ const getStatus = (value, min, max) => {
 }
 
 const overallStatus = computed(() => {
-  const statuses = [
-    getStatus(sensors.value.ph.value, SENSOR_LIMITS.value.ph.min, SENSOR_LIMITS.value.ph.max),
-    getStatus(sensors.value.temperature.value, SENSOR_LIMITS.value.temperature.min, SENSOR_LIMITS.value.temperature.max),
-    getStatus(sensors.value.conductivity.value, SENSOR_LIMITS.value.conductivity.min, SENSOR_LIMITS.value.conductivity.max)
-  ]
+  // Usar los límites seguros como rango para la evaluación general
+  const phStatus = getStatus(sensors.value.ph.value, SENSOR_LIMITS.value.ph.safe_min || 0, SENSOR_LIMITS.value.ph.safe_max || 14)
+  const tempStatus = getStatus(sensors.value.temperature.value, SENSOR_LIMITS.value.temperature.safe_min || 0, SENSOR_LIMITS.value.temperature.safe_max || 50)
+  const conductStatus = getStatus(sensors.value.conductivity.value, SENSOR_LIMITS.value.conductivity.safe_min || 0, SENSOR_LIMITS.value.conductivity.safe_max || 3000)
+  
+  const statuses = [phStatus, tempStatus, conductStatus]
   if (statuses.includes('danger')) return 'danger'
   if (statuses.includes('warning')) return 'warning'
   return 'safe'
@@ -711,10 +728,16 @@ const createRecord = ({ ph, temperature, conductivity, timestamp }) => {
   const safePh = Number(Number(ph).toFixed(2))
   const safeTemperature = Number(Number(temperature).toFixed(2))
   const safeConductivity = Number(Number(conductivity).toFixed(2))
+  
+  // Usar los límites seguros para determinar si es una alerta
+  const phLimits = SENSOR_LIMITS.value.ph || {}
+  const tempLimits = SENSOR_LIMITS.value.temperature || {}
+  const conductLimits = SENSOR_LIMITS.value.conductivity || {}
+  
   const isAlert =
-    safePh < SENSOR_LIMITS.value.ph.min || safePh > SENSOR_LIMITS.value.ph.max ||
-    safeTemperature < SENSOR_LIMITS.value.temperature.min || safeTemperature > SENSOR_LIMITS.value.temperature.max ||
-    safeConductivity < SENSOR_LIMITS.value.conductivity.min || safeConductivity > SENSOR_LIMITS.value.conductivity.max
+    (safePh < (phLimits.safe_min ?? 0) || safePh > (phLimits.safe_max ?? 14)) ||
+    (safeTemperature < (tempLimits.safe_min ?? 0) || safeTemperature > (tempLimits.safe_max ?? 50)) ||
+    (safeConductivity < (conductLimits.safe_min ?? 0) || safeConductivity > (conductLimits.safe_max ?? 3000))
 
   return {
     id: `real-${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,

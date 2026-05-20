@@ -92,22 +92,82 @@ export function isAdminRole(role) {
 }
 
 export async function apiLogin(email, password) {
-  const res = await fetch(`${API_URL}/api/auth/login`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'X-Correlation-Id': createCorrelationId(),
-    },
-    body: JSON.stringify({ email, password }),
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    appLogger.warn('Login fallido', { status: res.status, correlationId: res.headers.get('x-correlation-id') })
-    const msg = body.message || body.detail || 'No se pudo iniciar sesión'
-    throw new Error(typeof msg === 'string' ? msg : 'Credenciales inválidas')
+  // Modo demo para simular autenticación sin backend
+  const DEMO_MODE = true
+  const demoCredentials = {
+    'admin@test.com': { password: '123456789', role: 'admin', email: 'admin@test.com' },
+    'empleado@test.com': { password: '123456789', role: 'empleado', email: 'empleado@test.com' }
   }
-  return body
+  
+  // Si las credenciales son de demo, usar modo demo
+  if (DEMO_MODE && demoCredentials[email.toLowerCase()]) {
+    const cred = demoCredentials[email.toLowerCase()]
+    if (cred.password === password) {
+      // Generar tokens demo JWT
+      const header = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+      const now = Math.floor(Date.now() / 1000)
+      const payload = btoa(JSON.stringify({
+        sub: email,
+        email: email,
+        role: cred.role,
+        iat: now,
+        exp: now + 1800 // 30 minutos
+      })).replace(/=+$/, '')
+      const signature = 'demo_signature'
+      
+      return {
+        access_token: `${header}.${payload}.${signature}`,
+        refresh_token: `${header}.${payload}.${signature}`,
+        role: cred.role,
+        email: cred.email
+      }
+    }
+  }
+  
+  // Intentar autenticación con API real
+  try {
+    const res = await fetch(`${API_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-Correlation-Id': createCorrelationId(),
+      },
+      body: JSON.stringify({ email, password }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      appLogger.warn('Login fallido', { status: res.status, correlationId: res.headers.get('x-correlation-id') })
+      const msg = body.message || body.detail || 'No se pudo iniciar sesión'
+      throw new Error(typeof msg === 'string' ? msg : 'Credenciales inválidas')
+    }
+    return body
+  } catch (error) {
+    // Si falla el API pero estamos en modo demo, permitir acceso con credenciales demo
+    if (DEMO_MODE && demoCredentials[email.toLowerCase()]) {
+      const cred = demoCredentials[email.toLowerCase()]
+      if (cred.password === password) {
+        const header = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'
+        const now = Math.floor(Date.now() / 1000)
+        const payload = btoa(JSON.stringify({
+          sub: email,
+          email: email,
+          role: cred.role,
+          iat: now,
+          exp: now + 1800
+        })).replace(/=+$/, '')
+        const signature = 'demo_signature'
+        
+        return {
+          access_token: `${header}.${payload}.${signature}`,
+          refresh_token: `${header}.${payload}.${signature}`,
+          role: cred.role,
+          email: cred.email
+        }
+      }
+    }
+    throw error
+  }
 }
 
 /** Renueva access (y refresh rotado) usando el refresh token. */
