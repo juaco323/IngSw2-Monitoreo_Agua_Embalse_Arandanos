@@ -366,55 +366,73 @@ const GLOBAL_LIMITS_KEY = 'globalAlertLimits'
 
 const globalAlerts = ref({
   ph: {
+    // 🔴 Peligroso: 0-1, 9-10
     danger_min: 0,
-    danger_max: 5.5,
-    warning_min: 5.5,
-    warning_max: 6.5,
-    safe_min: 6.5,
-    safe_max: 8.5,
+    danger_max: 1,
+    // 🟠 Advertencia: 1-2.5, 7.5-9
+    warning_min: 1,
+    warning_max: 2.5,
+    // 🟢 Seguro: 2.5-7.5
+    safe_min: 2.5,
+    safe_max: 7.5,
   },
   temperature: {
+    // 🔴 Peligroso: 0-3, 27-30
     danger_min: 0,
-    danger_max: 10,
-    warning_min: 10,
-    warning_max: 15,
-    safe_min: 15,
-    safe_max: 30,
+    danger_max: 3,
+    // 🟠 Advertencia: 3-7.5, 22.5-27
+    warning_min: 3,
+    warning_max: 7.5,
+    // 🟢 Seguro: 7.5-22.5
+    safe_min: 7.5,
+    safe_max: 22.5,
   },
   conductivity: {
+    // 🔴 Peligroso: 0-200, 1800-2000
     danger_min: 0,
-    danger_max: 100,
-    warning_min: 100,
+    danger_max: 200,
+    // 🟠 Advertencia: 200-500, 1500-1800
+    warning_min: 200,
     warning_max: 500,
+    // 🟢 Seguro: 500-1500
     safe_min: 500,
-    safe_max: 2000,
+    safe_max: 1500,
   },
 })
 
 const defaultAlerts = {
   ph: {
+    // 🔴 Peligroso: 0-1, 9-10
     danger_min: 0,
-    danger_max: 5.5,
-    warning_min: 5.5,
-    warning_max: 6.5,
-    safe_min: 6.5,
-    safe_max: 8.5,
+    danger_max: 1,
+    // 🟠 Advertencia: 1-2.5, 7.5-9
+    warning_min: 1,
+    warning_max: 2.5,
+    // 🟢 Seguro: 2.5-7.5
+    safe_min: 2.5,
+    safe_max: 7.5,
   },
   temperature: {
+    // 🔴 Peligroso: 0-3, 27-30
     danger_min: 0,
-    danger_max: 10,
-    warning_min: 10,
-    warning_max: 15,
-    safe_min: 15,
-    safe_max: 30,
+    danger_max: 3,
+    // 🟠 Advertencia: 3-7.5, 22.5-27
+    warning_min: 3,
+    warning_max: 7.5,
+    // 🟢 Seguro: 7.5-22.5
+    safe_min: 7.5,
+    safe_max: 22.5,
   },
   conductivity: {
+    // 🔴 Peligroso: 0-200, 1800-2000
     danger_min: 0,
-    danger_max: 100,
-    warning_min: 100,
+    danger_max: 200,
+    // 🟠 Advertencia: 200-500, 1500-1800
+    warning_min: 200,
     warning_max: 500,
+    // 🟢 Seguro: 500-1500
     safe_min: 500,
-    safe_max: 2000,
+    safe_max: 1500,
   },
 }
 
