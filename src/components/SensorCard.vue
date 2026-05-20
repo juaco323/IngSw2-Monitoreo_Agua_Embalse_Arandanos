@@ -7,20 +7,11 @@
       </span>
     </div>
     
-    <div class="gauge-wrapper">
-      <LinearGauge
-        :sensor-name="sensorName"
-        :value="value"
-        :min-value="min"
-        :max-value="max"
-        :unit="unit"
-        :width="450"
-        :height="150"
-        :major-ticks="majorTicks"
-        :minor-ticks="5"
-        :highlights="gaugeHighlights"
-        v-bind="linearGaugeThemeProps"
-      />
+    <div class="sensor-display" :class="`status-bg-${statusClass}`">
+      <div class="sensor-value">
+        <span class="value-number">{{ value.toFixed(1) }}</span>
+        <span class="value-unit">{{ unit }}</span>
+      </div>
     </div>
 
     <div class="sensor-info">
@@ -44,36 +35,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
-
-const gaugeIsDark = ref(false)
-
-function syncGaugeTheme() {
-  gaugeIsDark.value = document.documentElement.getAttribute('data-theme') === 'dark'
-}
-
-onMounted(() => {
-  syncGaugeTheme()
-  window.addEventListener('embalse-theme-change', syncGaugeTheme)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('embalse-theme-change', syncGaugeTheme)
-})
-
-const linearGaugeThemeProps = computed(() => {
-  if (!gaugeIsDark.value) return {}
-  return {
-    colorMajorTicks: '#94a3b8',
-    colorMinorTicks: '#64748b',
-    colorNumbers: '#e2e8f0',
-    colorUnits: '#cbd5e1',
-    colorPlate: '#1e293b',
-    colorPlateEnd: '#0f172a',
-    colorNeedle: '#fcd34d',
-  }
-})
-import LinearGauge from './LinearGauge.vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   sensorName: {
@@ -156,39 +118,6 @@ const statusText = computed(() => {
   if (currentValue <= normalizedThresholds.value.warningLow || currentValue >= normalizedThresholds.value.warningHigh) return 'Advertencia'
   return 'Estable'
 })
-
-const majorTicks = computed(() => {
-  const range = props.max - props.min
-  const step = range / 10
-  const ticks = []
-  for (let i = 0; i <= 10; i++) {
-    ticks.push(parseFloat((props.min + i * step).toFixed(2)))
-  }
-  return ticks
-})
-
-const gaugeHighlights = computed(() => {
-  const thresholds = normalizedThresholds.value
-
-  // Para temperatura: azul en extremo frío, para pH y conductividad: rojo en ambos extremos
-  if (props.sensorType === 'temperature') {
-    return [
-      { from: props.min, to: thresholds.dangerLow, color: 'rgba(0, 0, 255, 0.25)' },
-      { from: thresholds.dangerLow, to: thresholds.warningLow, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.warningLow, to: thresholds.warningHigh, color: 'rgba(76, 175, 80, 0.25)' },
-      { from: thresholds.warningHigh, to: thresholds.dangerHigh, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.dangerHigh, to: props.max, color: 'rgba(255, 0, 0, 0.25)' }
-    ]
-  } else {
-    return [
-      { from: props.min, to: thresholds.dangerLow, color: 'rgba(255, 0, 0, 0.25)' },
-      { from: thresholds.dangerLow, to: thresholds.warningLow, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.warningLow, to: thresholds.warningHigh, color: 'rgba(76, 175, 80, 0.25)' },
-      { from: thresholds.warningHigh, to: thresholds.dangerHigh, color: 'rgba(255, 193, 7, 0.25)' },
-      { from: thresholds.dangerHigh, to: props.max, color: 'rgba(255, 0, 0, 0.25)' }
-    ]
-  }
-})
 </script>
 
 <style scoped>
@@ -199,6 +128,9 @@ const gaugeHighlights = computed(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   border: 1px solid #e8e8e8;
   transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .sensor-card:hover {
@@ -210,8 +142,7 @@ const gaugeHighlights = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid #f0f0f0;
 }
 
@@ -246,15 +177,56 @@ const gaugeHighlights = computed(() => {
   color: #c62828;
 }
 
-.gauge-wrapper {
+/* Sensor Display with Number and Background Color */
+.sensor-display {
   display: flex;
   justify-content: center;
-  margin: 24px 0;
+  align-items: center;
+  min-height: 140px;
+  border-radius: 8px;
+  padding: 20px;
+  transition: all 0.3s ease;
+}
+
+.status-bg-safe {
+  background-color: #4caf50;
+  background-color: rgba(76, 175, 80, 0.9);
+}
+
+.status-bg-warning {
+  background-color: #ffc107;
+  background-color: rgba(255, 193, 7, 0.9);
+}
+
+.status-bg-danger {
+  background-color: #f44336;
+  background-color: rgba(244, 67, 54, 0.9);
+}
+
+.sensor-value {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+}
+
+.value-number {
+  font-size: 56px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.value-unit {
+  font-size: 18px;
+  font-weight: 500;
+  color: #ffffff;
+  opacity: 0.95;
 }
 
 .sensor-info {
-  margin-top: 20px;
-  padding-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid #f0f0f0;
 }
 
@@ -262,7 +234,7 @@ const gaugeHighlights = computed(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   font-size: 13px;
 }
 
@@ -289,8 +261,34 @@ const gaugeHighlights = computed(() => {
     font-size: 16px;
   }
 
-  .sensor-header {
-    margin-bottom: 16px;
+  .value-number {
+    font-size: 40px;
+  }
+
+  .value-unit {
+    font-size: 14px;
+  }
+
+  .sensor-display {
+    min-height: 100px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sensor-card {
+    padding: 12px;
+  }
+
+  .value-number {
+    font-size: 32px;
+  }
+
+  .value-unit {
+    font-size: 12px;
+  }
+
+  .sensor-display {
+    min-height: 80px;
   }
 }
 </style>
